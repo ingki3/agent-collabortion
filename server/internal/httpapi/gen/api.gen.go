@@ -215,15 +215,191 @@ func (e BlockedDetailNextApproverRole) Valid() bool {
 	}
 }
 
+// Defines values for CardCriterionMethod.
+const (
+	CardCriterionMethodArtifact CardCriterionMethod = "artifact"
+	CardCriterionMethodInspect  CardCriterionMethod = "inspect"
+	CardCriterionMethodReview   CardCriterionMethod = "review"
+	CardCriterionMethodRun      CardCriterionMethod = "run"
+	CardCriterionMethodTest     CardCriterionMethod = "test"
+)
+
+// Valid indicates whether the value is a known member of the CardCriterionMethod enum.
+func (e CardCriterionMethod) Valid() bool {
+	switch e {
+	case CardCriterionMethodArtifact:
+		return true
+	case CardCriterionMethodInspect:
+		return true
+	case CardCriterionMethodReview:
+		return true
+	case CardCriterionMethodRun:
+		return true
+	case CardCriterionMethodTest:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CardEvidenceKind.
+const (
+	CardEvidenceKindArtifact CardEvidenceKind = "artifact"
+	CardEvidenceKindCommit   CardEvidenceKind = "commit"
+	CardEvidenceKindMessage  CardEvidenceKind = "message"
+)
+
+// Valid indicates whether the value is a known member of the CardEvidenceKind enum.
+func (e CardEvidenceKind) Valid() bool {
+	switch e {
+	case CardEvidenceKindArtifact:
+		return true
+	case CardEvidenceKindCommit:
+		return true
+	case CardEvidenceKindMessage:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CardJudgementAction.
+const (
+	CardJudgementActionAccepted        CardJudgementAction = "accepted"
+	CardJudgementActionReviseRequested CardJudgementAction = "revise_requested"
+)
+
+// Valid indicates whether the value is a known member of the CardJudgementAction enum.
+func (e CardJudgementAction) Valid() bool {
+	switch e {
+	case CardJudgementActionAccepted:
+		return true
+	case CardJudgementActionReviseRequested:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CardJudgementByKind.
+const (
+	CardJudgementByKindAgent CardJudgementByKind = "agent"
+	CardJudgementByKindUser  CardJudgementByKind = "user"
+)
+
+// Valid indicates whether the value is a known member of the CardJudgementByKind enum.
+func (e CardJudgementByKind) Valid() bool {
+	switch e {
+	case CardJudgementByKindAgent:
+		return true
+	case CardJudgementByKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CardRefKind.
+const (
+	CardRefKindArtifact CardRefKind = "artifact"
+	CardRefKindDecision CardRefKind = "decision"
+	CardRefKindMessage  CardRefKind = "message"
+)
+
+// Valid indicates whether the value is a known member of the CardRefKind enum.
+func (e CardRefKind) Valid() bool {
+	switch e {
+	case CardRefKindArtifact:
+		return true
+	case CardRefKindDecision:
+		return true
+	case CardRefKindMessage:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CardRefInputKind.
+const (
+	CardRefInputKindArtifact CardRefInputKind = "artifact"
+	CardRefInputKindDecision CardRefInputKind = "decision"
+	CardRefInputKindMessage  CardRefInputKind = "message"
+)
+
+// Valid indicates whether the value is a known member of the CardRefInputKind enum.
+func (e CardRefInputKind) Valid() bool {
+	switch e {
+	case CardRefInputKindArtifact:
+		return true
+	case CardRefInputKindDecision:
+		return true
+	case CardRefInputKindMessage:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CardStatus.
+const (
+	CardStatusAccepted        CardStatus = "accepted"
+	CardStatusCancelled       CardStatus = "cancelled"
+	CardStatusInProgress      CardStatus = "in_progress"
+	CardStatusResultSubmitted CardStatus = "result_submitted"
+)
+
+// Valid indicates whether the value is a known member of the CardStatus enum.
+func (e CardStatus) Valid() bool {
+	switch e {
+	case CardStatusAccepted:
+		return true
+	case CardStatusCancelled:
+		return true
+	case CardStatusInProgress:
+		return true
+	case CardStatusResultSubmitted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CardVerdict.
+const (
+	Met     CardVerdict = "met"
+	Partial CardVerdict = "partial"
+	Unmet   CardVerdict = "unmet"
+)
+
+// Valid indicates whether the value is a known member of the CardVerdict enum.
+func (e CardVerdict) Valid() bool {
+	switch e {
+	case Met:
+		return true
+	case Partial:
+		return true
+	case Unmet:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ColabCommand.
 const (
 	ColabCommandArtifactGet        ColabCommand = "artifact_get"
 	ColabCommandArtifactSubmit     ColabCommand = "artifact_submit"
+	ColabCommandCardAccept         ColabCommand = "card_accept"
+	ColabCommandCardDelegate       ColabCommand = "card_delegate"
+	ColabCommandCardGet            ColabCommand = "card_get"
+	ColabCommandCardList           ColabCommand = "card_list"
+	ColabCommandCardReport         ColabCommand = "card_report"
+	ColabCommandCardRevise         ColabCommand = "card_revise"
 	ColabCommandDecisionRecord     ColabCommand = "decision_record"
 	ColabCommandHitlApproveRequest ColabCommand = "hitl_approve_request"
 	ColabCommandHitlAsk            ColabCommand = "hitl_ask"
 	ColabCommandHitlRequestInfo    ColabCommand = "hitl_request_info"
-	ColabCommandLaneDelegate       ColabCommand = "lane_delegate"
 	ColabCommandMessagePost        ColabCommand = "message_post"
 	ColabCommandReviewApprove      ColabCommand = "review_approve"
 	ColabCommandReviewReject       ColabCommand = "review_reject"
@@ -242,6 +418,18 @@ func (e ColabCommand) Valid() bool {
 		return true
 	case ColabCommandArtifactSubmit:
 		return true
+	case ColabCommandCardAccept:
+		return true
+	case ColabCommandCardDelegate:
+		return true
+	case ColabCommandCardGet:
+		return true
+	case ColabCommandCardList:
+		return true
+	case ColabCommandCardReport:
+		return true
+	case ColabCommandCardRevise:
+		return true
 	case ColabCommandDecisionRecord:
 		return true
 	case ColabCommandHitlApproveRequest:
@@ -249,8 +437,6 @@ func (e ColabCommand) Valid() bool {
 	case ColabCommandHitlAsk:
 		return true
 	case ColabCommandHitlRequestInfo:
-		return true
-	case ColabCommandLaneDelegate:
 		return true
 	case ColabCommandMessagePost:
 		return true
@@ -902,6 +1088,27 @@ func (e MessageAddresseesKind) Valid() bool {
 	case MessageAddresseesKindAll:
 		return true
 	case MessageAddresseesKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MessageCardRole.
+const (
+	MessageCardRoleDelegation  MessageCardRole = "delegation"
+	MessageCardRoleLessThannil MessageCardRole = "<nil>"
+	MessageCardRoleResult      MessageCardRole = "result"
+)
+
+// Valid indicates whether the value is a known member of the MessageCardRole enum.
+func (e MessageCardRole) Valid() bool {
+	switch e {
+	case MessageCardRoleDelegation:
+		return true
+	case MessageCardRoleLessThannil:
+		return true
+	case MessageCardRoleResult:
 		return true
 	default:
 		return false
@@ -1599,6 +1806,8 @@ func (e SessionStatus) Valid() bool {
 const (
 	StreamEventTypeAgentTyping            StreamEventType = "agent.typing"
 	StreamEventTypeArtifactCreated        StreamEventType = "artifact.created"
+	StreamEventTypeCardCreated            StreamEventType = "card.created"
+	StreamEventTypeCardUpdated            StreamEventType = "card.updated"
 	StreamEventTypeCostUpdated            StreamEventType = "cost.updated"
 	StreamEventTypeDecisionCreated        StreamEventType = "decision.created"
 	StreamEventTypeHitlCreated            StreamEventType = "hitl.created"
@@ -1642,6 +1851,10 @@ func (e StreamEventType) Valid() bool {
 	case StreamEventTypeAgentTyping:
 		return true
 	case StreamEventTypeArtifactCreated:
+		return true
+	case StreamEventTypeCardCreated:
+		return true
+	case StreamEventTypeCardUpdated:
 		return true
 	case StreamEventTypeCostUpdated:
 		return true
@@ -1760,6 +1973,45 @@ func (e TaskTransport) Valid() bool {
 	}
 }
 
+// Defines values for TaskCardActions.
+const (
+	TaskCardActionsAccept TaskCardActions = "accept"
+	TaskCardActionsRevise TaskCardActions = "revise"
+)
+
+// Valid indicates whether the value is a known member of the TaskCardActions enum.
+func (e TaskCardActions) Valid() bool {
+	switch e {
+	case TaskCardActionsAccept:
+		return true
+	case TaskCardActionsRevise:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TaskKind.
+const (
+	TaskKindCard     TaskKind = "card"
+	TaskKindNormal   TaskKind = "normal"
+	TaskKindQuestion TaskKind = "question"
+)
+
+// Valid indicates whether the value is a known member of the TaskKind enum.
+func (e TaskKind) Valid() bool {
+	switch e {
+	case TaskKindCard:
+		return true
+	case TaskKindNormal:
+		return true
+	case TaskKindQuestion:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaskStatus.
 const (
 	TaskStatusCancelled    TaskStatus = "cancelled"
@@ -1796,6 +2048,21 @@ func (e TaskStatus) Valid() bool {
 	case TaskStatusRunning:
 		return true
 	case TaskStatusWaitingHuman:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TaskTriggerReason.
+const (
+	ResultCardMissing TaskTriggerReason = "result_card_missing"
+)
+
+// Valid indicates whether the value is a known member of the TaskTriggerReason enum.
+func (e TaskTriggerReason) Valid() bool {
+	switch e {
+	case ResultCardMissing:
 		return true
 	default:
 		return false
@@ -1903,13 +2170,13 @@ func (e WorkPauseReason) Valid() bool {
 
 // Defines values for WorkProposalResolution0Action.
 const (
-	Accept WorkProposalResolution0Action = "accept"
+	WorkProposalResolution0ActionAccept WorkProposalResolution0Action = "accept"
 )
 
 // Valid indicates whether the value is a known member of the WorkProposalResolution0Action enum.
 func (e WorkProposalResolution0Action) Valid() bool {
 	switch e {
-	case Accept:
+	case WorkProposalResolution0ActionAccept:
 		return true
 	default:
 		return false
@@ -2505,14 +2772,170 @@ type BudgetPolicy struct {
 	WorkspaceMonthlyBudgetUsd nullable.Nullable[float32] `json:"workspace_monthly_budget_usd,omitempty"`
 }
 
+// CardBoard v0.3.10 — 미션의 분담표(SCREEN §4.6 「분담표」). 번호순, 하위 카드는 `parent_card_id` 로 트리.
+type CardBoard struct {
+	Items []struct {
+		Assignee struct {
+			AgentId openapi_types.UUID `json:"agent_id"`
+			Name    string             `json:"name"`
+		} `json:"assignee"`
+		AutoResult *bool                      `json:"auto_result,omitempty"`
+		CostUsd    nullable.Nullable[float32] `json:"cost_usd"`
+		Goal       string                     `json:"goal"`
+		Id         openapi_types.UUID         `json:"id"`
+		Label      string                     `json:"label"`
+		LaneId     openapi_types.UUID         `json:"lane_id"`
+
+		// LatestMessageId 누르면 스크롤할 말풍선(결과 카드가 있으면 그것).
+		LatestMessageId nullable.Nullable[openapi_types.UUID] `json:"latest_message_id,omitempty"`
+
+		// Met 결과가 없으면 null.
+		Met          nullable.Nullable[int]                `json:"met"`
+		Number       int                                   `json:"number"`
+		ParentCardId nullable.Nullable[openapi_types.UUID] `json:"parent_card_id"`
+
+		// Status 위임 카드 상태. 수정 요청은 상태가 아니라 동작이다 — `in_progress` 로 돌아가고 `version` +1.
+		Status        CardStatus `json:"status"`
+		TotalCriteria int        `json:"total_criteria"`
+		Version       int        `json:"version"`
+	} `json:"items"`
+
+	// PendingJudgement `result_submitted` 수.
+	PendingJudgement int                                   `json:"pending_judgement"`
+	Total            int                                   `json:"total"`
+	WorkId           nullable.Nullable[openapi_types.UUID] `json:"work_id"`
+}
+
+// CardCriterionMethod 완료 기준의 확인 방법 — 테스트 · 산출물 · 실행 결과 · 검토 · 눈으로 확인(화면 라벨은 SCREEN §4.6 「작업 카드」).
+type CardCriterionMethod string
+
+// CardEvidence defines model for CardEvidence.
+type CardEvidence struct {
+	Kind CardEvidenceKind `json:"kind"`
+
+	// Label 읽기 전용 — 서버가 채운 표시 이름.
+	Label nullable.Nullable[string] `json:"label,omitempty"`
+
+	// Ref artifact·message 면 같은 방의 uuid(존재 검사), commit 이면 해시 7~40자. 로그·스크린샷은 아티팩트로 내고 가리킨다.
+	Ref string `json:"ref"`
+}
+
+// CardEvidenceKind defines model for CardEvidence.Kind.
+type CardEvidenceKind string
+
+// CardJudgement defines model for CardJudgement.
+type CardJudgement struct {
+	Action CardJudgementAction `json:"action"`
+	At     time.Time           `json:"at"`
+	By     struct {
+		Id   openapi_types.UUID  `json:"id"`
+		Kind CardJudgementByKind `json:"kind"`
+		Name string              `json:"name"`
+	} `json:"by"`
+	Reason nullable.Nullable[string] `json:"reason,omitempty"`
+}
+
+// CardJudgementAction defines model for CardJudgement.Action.
+type CardJudgementAction string
+
+// CardJudgementByKind defines model for CardJudgement.By.Kind.
+type CardJudgementByKind string
+
+// CardRef defines model for CardRef.
+type CardRef struct {
+	Id   openapi_types.UUID `json:"id"`
+	Kind CardRefKind        `json:"kind"`
+
+	// Label 서버가 채운 표시 이름 — 아티팩트 이름·vN, 결정 요약 첫 40자, 메시지 작성자·시각.
+	Label string `json:"label"`
+
+	// Missing 대상이 지워졌다(칩을 흐리게).
+	Missing bool `json:"missing"`
+}
+
+// CardRefKind defines model for CardRef.Kind.
+type CardRefKind string
+
+// CardRefInput defines model for CardRefInput.
+type CardRefInput struct {
+	// Id 같은 방의 것만.
+	Id   openapi_types.UUID `json:"id"`
+	Kind CardRefInputKind   `json:"kind"`
+}
+
+// CardRefInputKind defines model for CardRefInput.Kind.
+type CardRefInputKind string
+
+// CardResult defines model for CardResult.
+type CardResult struct {
+	Assumed []string `json:"assumed"`
+
+	// Auto 결과 카드 없이 끝나 서버가 쓴 것(모든 기준 `unmet`).
+	Auto      bool     `json:"auto"`
+	Confirmed []string `json:"confirmed"`
+
+	// CostUsd 그 판의 카드 task 들 비용 합.
+	CostUsd    nullable.Nullable[float32] `json:"cost_usd,omitempty"`
+	Deviations nullable.Nullable[string]  `json:"deviations,omitempty"`
+	DurationS  nullable.Nullable[int]     `json:"duration_s,omitempty"`
+
+	// MessageId 결과 카드 말풍선.
+	MessageId   nullable.Nullable[openapi_types.UUID] `json:"message_id"`
+	MetCount    *int                                  `json:"met_count,omitempty"`
+	OpenIssues  nullable.Nullable[string]             `json:"open_issues,omitempty"`
+	SubmittedAt time.Time                             `json:"submitted_at"`
+	Summary     string                                `json:"summary"`
+	Verdicts    []struct {
+		Criterion int `json:"criterion"`
+
+		// Downgraded 에이전트는 `met` 이라 했지만 근거가 없어 서버가 `partial` 로 낮췄다(화면 「부분 · 근거 없음」).
+		Downgraded    *bool                     `json:"downgraded,omitempty"`
+		Evidence      []CardEvidence            `json:"evidence"`
+		Note          nullable.Nullable[string] `json:"note,omitempty"`
+		StatedVerdict CardVerdict               `json:"stated_verdict"`
+		Verdict       CardVerdict               `json:"verdict"`
+	} `json:"verdicts"`
+}
+
+// CardResultInput v0.3.10 — 결과 카드(PRD FR-3.8 3). 위임 카드의 기준을 **하나도 빠짐없이**(`criterion` 1..N 각 한 번) — 어기면 `422 result_card_incomplete`.
+type CardResultInput struct {
+	// Assumed 확인하지 않고 가정한 것 — 없으면 빈 배열.
+	Assumed []string `json:"assumed"`
+
+	// Confirmed 직접 확인한 것.
+	Confirmed  []string                  `json:"confirmed"`
+	Deviations nullable.Nullable[string] `json:"deviations,omitempty"`
+	OpenIssues nullable.Nullable[string] `json:"open_issues,omitempty"`
+	Summary    string                    `json:"summary"`
+	Verdicts   []struct {
+		// Criterion 위임 카드 현재 판의 기준 번호.
+		Criterion int             `json:"criterion"`
+		Evidence  *[]CardEvidence `json:"evidence,omitempty"`
+
+		// Note 부분·미충족이면 무엇이 빠졌는지.
+		Note    nullable.Nullable[string] `json:"note,omitempty"`
+		Verdict CardVerdict               `json:"verdict"`
+	} `json:"verdicts"`
+}
+
+// CardStatus 위임 카드 상태. 수정 요청은 상태가 아니라 동작이다 — `in_progress` 로 돌아가고 `version` +1.
+type CardStatus string
+
+// CardVerdict defines model for CardVerdict.
+type CardVerdict string
+
 // CliContext `TaskToken`이 가리키는 범위. CLI는 이 값으로 경로 파라미터를 채운다.
 type CliContext struct {
 	AgentId   openapi_types.UUID `json:"agent_id"`
 	AgentName *string            `json:"agent_name,omitempty"`
 
-	// AllowedCommands 이 task 의 에이전트가 쓸 수 있는 colab 명령(역할 부분집합, v1.1 K-19). CLI 는 이 밖의 명령을 서버에 보내기 전에 exit 3 `command_not_allowed` 로 거부한다.
-	AllowedCommands     *[]ColabCommand                       `json:"allowed_commands,omitempty"`
-	Attempt             int                                   `json:"attempt"`
+	// AllowedCommands 이 task 의 에이전트가 쓸 수 있는 colab 명령(역할 부분집합, v1.1 K-19; v0.3.10 질문 task 면 역할 표 ∩ 질문 표). CLI 는 이 밖의 명령을 서버에 보내기 전에 exit 3 `command_not_allowed` 로 거부한다.
+	AllowedCommands *[]ColabCommand `json:"allowed_commands,omitempty"`
+	Attempt         int             `json:"attempt"`
+
+	// CardId v0.3.10 — 카드 task 면 그 카드. `colab card report` 가 이 id 로 부른다(없으면 exit 3 `not_card_task`).
+	CardId              nullable.Nullable[openapi_types.UUID] `json:"card_id,omitempty"`
+	CardLabel           nullable.Nullable[string]             `json:"card_label,omitempty"`
 	DelegatedFromTaskId nullable.Nullable[openapi_types.UUID] `json:"delegated_from_task_id,omitempty"`
 	ExpiresAt           time.Time                             `json:"expires_at"`
 
@@ -2544,7 +2967,10 @@ type CliContext struct {
 	// SuppressedDelegatorAgentId 규칙 8로 멘션이 억제되는 위임자(합류 발화 전). 질문은 `status set blocked`로.
 	SuppressedDelegatorAgentId nullable.Nullable[openapi_types.UUID] `json:"suppressed_delegator_agent_id,omitempty"`
 	TaskId                     openapi_types.UUID                    `json:"task_id"`
-	WorkspaceId                openapi_types.UUID                    `json:"workspace_id"`
+
+	// TaskKind v0.3.10 — task 의 종류(PRD FR-3.8). `card` = 위임 카드로 받은 일(위임 · 수정 요청 재진입 · 결과 카드 후속) — 결과 카드가 lane 을 끝내는 문. `question` = 카드 없이 에이전트가 다른 에이전트를 멘션해 생긴 task — 답만 한다(허용 명령 = 역할 표 ∩ 질문 표, 결과 카드 문 없음, lane 상태를 바꾸지 않는다). `normal` = 그 밖(사람의 지시·시스템 트리거·옛 task).
+	TaskKind    *TaskKind          `json:"task_kind,omitempty"`
+	WorkspaceId openapi_types.UUID `json:"workspace_id"`
 }
 
 // ColabCLI 머신에 설치된 colab CLI. **런타임 속성이 아니라 머신 속성**이라 `capabilities[]`가 아니라 probe 최상위에 한 번 실린다(daemon-protocol.md §3, v0.5) — 런타임이 둘이어도 바이너리는 하나고, 런타임이 0개인 머신에서도 보고돼야 한다. 에이전트는 colab CLI로 서버에 말하므로 `present: false`면 방이 조용히 아무 말도 못 한다: S11·S12 카드는 이걸 경고로 드러낸다.
@@ -2555,7 +2981,7 @@ type ColabCLI struct {
 	Version string `json:"version"`
 }
 
-// ColabCommand colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose. v0.3.0(R4): session_get·session_messages → room_get·room_messages.
+// ColabCommand colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose. v0.3.0(R4): session_get·session_messages → room_get·room_messages. v0.3.10(PRD FR-3.8): `lane_delegate` → `card_delegate`(위임은 카드로만), `card_report`·`card_accept`·`card_revise`·`card_get`·`card_list` 추가. 질문 task 는 역할 표 ∩ 질문 표(`room_get`·`room_messages`·`room_list`·`room_read`·`artifact_get`·`card_get`·`card_list`·`message_post`·`status_set`·`hitl_ask`) — colab-cli.md §2.5.
 type ColabCommand string
 
 // CompletionAtom defines model for CompletionAtom.
@@ -2587,6 +3013,16 @@ type CompletionGroupOp string
 
 // CompletionProgress S7 우열 "종료 조건 진행률" — 조건별 충족 여부와 누구 차례인지.
 type CompletionProgress struct {
+	// Cards v0.3.10 — 그 미션의 작업 카드 요약(PRD FR-3.8 4). 완료 승인 요청(FR-2A.2)에 붙는다. 카드 0 이면 null.
+	Cards *struct {
+		Accepted         int `json:"accepted"`
+		InProgress       int `json:"in_progress"`
+		PendingJudgement int `json:"pending_judgement"`
+		Total            int `json:"total"`
+
+		// WeakCriteria 수락·판정 대기 카드의 부분·미충족 기준 수.
+		WeakCriteria int `json:"weak_criteria"`
+	} `json:"cards,omitempty"`
 	Conditions []struct {
 		// AgentId `artifact_submitted`·`agent_approval` 의 지정 에이전트(v0.1.4).
 		AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
@@ -3041,8 +3477,13 @@ type Lane struct {
 	BlockedNote      nullable.Nullable[string]             `json:"blocked_note"`
 
 	// Brief 위임 요약(첫 트리거 메시지 발췌).
-	Brief     nullable.Nullable[string] `json:"brief,omitempty"`
-	CreatedAt time.Time                 `json:"created_at"`
+	Brief nullable.Nullable[string] `json:"brief,omitempty"`
+
+	// CardId v0.3.10 — 이 lane 을 만든 위임 카드(카드 lane 이면). 서브 미션 카드에 「C-3」.
+	CardId     nullable.Nullable[openapi_types.UUID] `json:"card_id,omitempty"`
+	CardLabel  nullable.Nullable[string]             `json:"card_label,omitempty"`
+	CardStatus nullable.Nullable[CardStatus]         `json:"card_status,omitempty"`
+	CreatedAt  time.Time                             `json:"created_at"`
 
 	// CurrentActivity running 카드 "현재 동작 한 줄"(마지막 task_event 문장).
 	CurrentActivity nullable.Nullable[string] `json:"current_activity,omitempty"`
@@ -3201,6 +3642,15 @@ type Message struct {
 	// AuthorType `author_type` (FR-3.1)
 	AuthorType AuthorType `json:"author_type"`
 
+	// CardId v0.3.10 — 작업 카드 말풍선이면 그 카드(PRD FR-3.8). 화면은 `card_role` 로 위임 카드·결과 카드 렌더러를 고르고 `getCard`(또는 `card.*`)로 칸을 채운다.
+	CardId nullable.Nullable[openapi_types.UUID] `json:"card_id,omitempty"`
+
+	// CardRole v0.3.10 — `delegation` = 위임 카드(판마다 하나), `result` = 결과 카드. 그 밖 null.
+	CardRole nullable.Nullable[MessageCardRole] `json:"card_role,omitempty"`
+
+	// CardVersion v0.3.10 — 이 말풍선이 그리는 카드의 판.
+	CardVersion nullable.Nullable[int] `json:"card_version,omitempty"`
+
 	// Content 마크다운. 에이전트 메시지면 **대화** 층(PRD FR-3.1.2).
 	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"created_at"`
@@ -3244,7 +3694,7 @@ type Message struct {
 	SessionId           openapi_types.UUID                    `json:"session_id"`
 	SourceTaskId        nullable.Nullable[openapi_types.UUID] `json:"source_task_id"`
 
-	// Speech v0.3.2 — **말의 종류**(PRD FR-3.1.3). **서버가 판정해 내려준다** — 화면·CLI 가 본문이나 lane 을 읽어 짐작하지 않는다. `delegate` 는 `colab lane delegate` 가 쓴 메시지(서버가 쓰는 순간 안다), `report` 는 에이전트 메시지이고 그 턴을 깨운 메시지의 작성자(요청자)가 받는 쪽에 있거나 받는 쪽이 빈 경우, `instruct` 는 사람이 에이전트를 멘션, `request` 는 에이전트가 다른 에이전트를 멘션(위임·보고 아님), `answer` 는 질문 카드(`blocked_q`) 스레드 답글, `note` 는 `/note`. 판정 순서는 PRD FR-3.1.3 표.
+	// Speech v0.3.2 — **말의 종류**(PRD FR-3.1.3). **서버가 판정해 내려준다** — 화면·CLI 가 본문이나 lane 을 읽어 짐작하지 않는다. `delegate` 는 `colab lane delegate` 가 쓴 메시지(서버가 쓰는 순간 안다), `report` 는 에이전트 메시지이고 그 턴을 깨운 메시지의 작성자(요청자)가 받는 쪽에 있거나 받는 쪽이 빈 경우, `instruct` 는 사람이 에이전트를 멘션, `request` 는 에이전트가 다른 에이전트를 멘션(위임·보고 아님), `answer` 는 질문 카드(`blocked_q`) 스레드 답글, `note` 는 `/note`. 판정 순서는 PRD FR-3.1.3 표. **v0.3.10(PRD FR-3.8)**: 카드 없이 에이전트가 다른 에이전트를 멘션한 말은 `request` 가 아니라 `question`(받는 쪽은 질문 task), 질문 task 의 턴에서 묻는 쪽에게 한 말은 `answer`, 위임 카드 말풍선은 `delegate`, 결과 카드 말풍선은 `report`.
 	Speech *MessageSpeech `json:"speech,omitempty"`
 
 	// State `message_state` — pending_approval은 v1.1 supervised.
@@ -3257,7 +3707,10 @@ type Message struct {
 // MessageAddresseesKind defines model for Message.Addressees.Kind.
 type MessageAddresseesKind string
 
-// MessageSpeech v0.3.2 — **말의 종류**(PRD FR-3.1.3). **서버가 판정해 내려준다** — 화면·CLI 가 본문이나 lane 을 읽어 짐작하지 않는다. `delegate` 는 `colab lane delegate` 가 쓴 메시지(서버가 쓰는 순간 안다), `report` 는 에이전트 메시지이고 그 턴을 깨운 메시지의 작성자(요청자)가 받는 쪽에 있거나 받는 쪽이 빈 경우, `instruct` 는 사람이 에이전트를 멘션, `request` 는 에이전트가 다른 에이전트를 멘션(위임·보고 아님), `answer` 는 질문 카드(`blocked_q`) 스레드 답글, `note` 는 `/note`. 판정 순서는 PRD FR-3.1.3 표.
+// MessageCardRole v0.3.10 — `delegation` = 위임 카드(판마다 하나), `result` = 결과 카드. 그 밖 null.
+type MessageCardRole string
+
+// MessageSpeech v0.3.2 — **말의 종류**(PRD FR-3.1.3). **서버가 판정해 내려준다** — 화면·CLI 가 본문이나 lane 을 읽어 짐작하지 않는다. `delegate` 는 `colab lane delegate` 가 쓴 메시지(서버가 쓰는 순간 안다), `report` 는 에이전트 메시지이고 그 턴을 깨운 메시지의 작성자(요청자)가 받는 쪽에 있거나 받는 쪽이 빈 경우, `instruct` 는 사람이 에이전트를 멘션, `request` 는 에이전트가 다른 에이전트를 멘션(위임·보고 아님), `answer` 는 질문 카드(`blocked_q`) 스레드 답글, `note` 는 `/note`. 판정 순서는 PRD FR-3.1.3 표. **v0.3.10(PRD FR-3.8)**: 카드 없이 에이전트가 다른 에이전트를 멘션한 말은 `request` 가 아니라 `question`(받는 쪽은 질문 task), 질문 task 의 턴에서 묻는 쪽에게 한 말은 `answer`, 위임 카드 말풍선은 `delegate`, 결과 카드 말풍선은 `report`.
 type MessageSpeech string
 
 // MessageCreate defines model for MessageCreate.
@@ -4117,6 +4570,7 @@ type SessionStatus string
 // | `room_read.recorded` | `{room_id, direction, entry: RoomRead}` | S23 · S7 |
 // | `room_link.updated` | `{room_id, action: created\|deleted, link: RoomLink}` | S24 |
 // | `work_proposal.created` · `work_proposal.resolved` | `{room_id, proposal: WorkProposal}` · `{room_id, proposal_id, action, work_id?}` | S26 · S8 |
+// | `card.created` · `card.updated` | `TaskCard`(`versions` 없음) — v0.3.10 위임·결과·판정·수정 요청·취소 | S7 카드 말풍선 · 분담표 |
 //
 // v0.2.0 에서 **확장**되는 것: `lane.updated`(`work_id`·`queued_reason`) · `cost.updated`(`{room_id, room_cost_usd, work_id?, work_cost_usd?, estimated}` — 방 누적과 미션 비용 두 수) · `inbox.item_created`(`work_id`·`lane_id`). 웹 `STREAM_EVENT_TYPES` 는 이 enum 과 **같은 PR 에서** 맞춘다(목록에 없는 타입은 조용히 버려진다).
 type StreamEvent struct {
@@ -4149,7 +4603,10 @@ type Task struct {
 	Attempts *[]TaskAttempt     `json:"attempts,omitempty"`
 
 	// BudgetOverride USD. HITL 예산 승인값(C2′).
-	BudgetOverride      nullable.Nullable[float32]            `json:"budget_override"`
+	BudgetOverride nullable.Nullable[float32] `json:"budget_override"`
+
+	// CardId v0.3.10 — `kind: card` 면 그 카드.
+	CardId              nullable.Nullable[openapi_types.UUID] `json:"card_id,omitempty"`
 	CoalescedMessageIds []openapi_types.UUID                  `json:"coalesced_message_ids"`
 	CreatedAt           time.Time                             `json:"created_at"`
 	DelegatedFromTaskId nullable.Nullable[openapi_types.UUID] `json:"delegated_from_task_id"`
@@ -4158,9 +4615,12 @@ type Task struct {
 	FinishedAt          nullable.Nullable[time.Time]          `json:"finished_at,omitempty"`
 	HeartbeatAt         nullable.Nullable[time.Time]          `json:"heartbeat_at,omitempty"`
 	Id                  openapi_types.UUID                    `json:"id"`
-	LaneId              openapi_types.UUID                    `json:"lane_id"`
-	MaxAttempts         int                                   `json:"max_attempts"`
-	OpenHitlRequestId   nullable.Nullable[openapi_types.UUID] `json:"open_hitl_request_id,omitempty"`
+
+	// Kind v0.3.10 — task 의 종류(PRD FR-3.8). `card` = 위임 카드로 받은 일(위임 · 수정 요청 재진입 · 결과 카드 후속) — 결과 카드가 lane 을 끝내는 문. `question` = 카드 없이 에이전트가 다른 에이전트를 멘션해 생긴 task — 답만 한다(허용 명령 = 역할 표 ∩ 질문 표, 결과 카드 문 없음, lane 상태를 바꾸지 않는다). `normal` = 그 밖(사람의 지시·시스템 트리거·옛 task).
+	Kind              *TaskKind                             `json:"kind,omitempty"`
+	LaneId            openapi_types.UUID                    `json:"lane_id"`
+	MaxAttempts       int                                   `json:"max_attempts"`
+	OpenHitlRequestId nullable.Nullable[openapi_types.UUID] `json:"open_hitl_request_id,omitempty"`
 
 	// OriginatorUserId 체인 최상단 사람(권한 판정 기준).
 	OriginatorUserId nullable.Nullable[openapi_types.UUID] `json:"originator_user_id"`
@@ -4186,8 +4646,11 @@ type Task struct {
 	// Transport 실제 사용 경로(활동 피드에도 기록).
 	Transport        nullable.Nullable[TaskTransport]      `json:"transport,omitempty"`
 	TriggerMessageId nullable.Nullable[openapi_types.UUID] `json:"trigger_message_id"`
-	UpdatedAt        time.Time                             `json:"updated_at"`
-	Usage            *TaskUsage                            `json:"usage,omitempty"`
+
+	// TriggerReason v0.3.10 — 메시지 없는 서버 트리거의 사유.
+	TriggerReason nullable.Nullable[TaskTriggerReason] `json:"trigger_reason,omitempty"`
+	UpdatedAt     time.Time                            `json:"updated_at"`
+	Usage         *TaskUsage                           `json:"usage,omitempty"`
 
 	// WorkId v0.2.0.
 	WorkId nullable.Nullable[openapi_types.UUID] `json:"work_id,omitempty"`
@@ -4208,6 +4671,103 @@ type TaskAttempt struct {
 	// Resumed 런타임 세션 resume 성공(true) · 콜드 스타트(false) · 미시작(null).
 	Resumed   nullable.Nullable[bool]      `json:"resumed"`
 	StartedAt nullable.Nullable[time.Time] `json:"started_at"`
+}
+
+// TaskCard v0.3.10 — 위임 카드와 그 결과(PRD FR-3.8). 번호는 미션 안에서(미션 밖 위임이면 방 안에서) 1부터. 판(`version`)은 수정 요청마다 +1 — 지난 판은 `versions`(getCard 만).
+type TaskCard struct {
+	// Actions 호출자가 지금 할 수 있는 동작. 에이전트: 위임자만 `result_submitted` 에서 accept·revise. 사람: 미션 Director·deputy 가 `result_submitted` 에서 accept·revise, `accepted` 에서 revise(수락 취소).
+	Actions  []TaskCardActions `json:"actions"`
+	Assignee struct {
+		AgentId openapi_types.UUID `json:"agent_id"`
+		Name    string             `json:"name"`
+	} `json:"assignee"`
+	Boundaries string                     `json:"boundaries"`
+	BudgetUsd  nullable.Nullable[float32] `json:"budget_usd"`
+	CreatedAt  time.Time                  `json:"created_at"`
+	Criteria   []struct {
+		// Method 완료 기준의 확인 방법 — 테스트 · 산출물 · 실행 결과 · 검토 · 눈으로 확인(화면 라벨은 SCREEN §4.6 「작업 카드」).
+		Method CardCriterionMethod `json:"method"`
+		N      int                 `json:"n"`
+		Text   string              `json:"text"`
+	} `json:"criteria"`
+
+	// DelegateMessageId 이 판의 위임 카드 말풍선.
+	DelegateMessageId nullable.Nullable[openapi_types.UUID] `json:"delegate_message_id"`
+	Delegator         struct {
+		AgentId openapi_types.UUID `json:"agent_id"`
+		Name    string             `json:"name"`
+	} `json:"delegator"`
+
+	// FollowUps 이 판에서 건 `result_card_missing` 후속 수.
+	FollowUps *int               `json:"follow_ups,omitempty"`
+	Goal      string             `json:"goal"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// Judgement 이 판의 마지막 판정.
+	Judgement nullable.Nullable[CardJudgement] `json:"judgement"`
+
+	// Label 「C-3」.
+	Label        string                    `json:"label"`
+	LaneId       openapi_types.UUID        `json:"lane_id"`
+	Number       int                       `json:"number"`
+	OutputFormat nullable.Nullable[string] `json:"output_format"`
+
+	// ParentCardId 카드로 받은 일 안에서 다시 위임했으면 그 카드.
+	ParentCardId nullable.Nullable[openapi_types.UUID] `json:"parent_card_id"`
+	Refs         []CardRef                             `json:"refs"`
+
+	// Result 이 판의 결과 카드.
+	Result nullable.Nullable[CardResult] `json:"result"`
+
+	// ReviseReason 이 판을 만든 수정 요청 사유(1판이면 null).
+	ReviseReason nullable.Nullable[string] `json:"revise_reason,omitempty"`
+	RoomId       openapi_types.UUID        `json:"room_id"`
+
+	// Status 위임 카드 상태. 수정 요청은 상태가 아니라 동작이다 — `in_progress` 로 돌아가고 `version` +1.
+	Status    CardStatus `json:"status"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	Version   int        `json:"version"`
+
+	// Versions getCard 만 — 지난 판(오래된 것부터). 판마다 **그 판의 전체 모양**: version · goal · criteria · boundaries · refs(CardRef) · output_format · budget_usd · revise_reason · delegate_message_id · result · judgement — 화면이 지난 판 말풍선을 현재 판 칸으로 채우지 않게(#397 리뷰 B2).
+	Versions *[]map[string]interface{}             `json:"versions,omitempty"`
+	WorkId   nullable.Nullable[openapi_types.UUID] `json:"work_id"`
+}
+
+// TaskCardActions defines model for TaskCard.Actions.
+type TaskCardActions string
+
+// TaskCardInput v0.3.10 — 위임 카드(PRD FR-3.8 1). 검사를 어기면 `422 card_invalid` + `errors[]`(칸 경로·사람 말 사유) — 에이전트가 읽고 고쳐 다시 낸다.
+type TaskCardInput struct {
+	// AgentId 담당 — 방 참여자인 에이전트, 자기 자신 아님(`not_participant` · `self_delegation`).
+	AgentId openapi_types.UUID `json:"agent_id"`
+
+	// Boundaries 하지 않을 것 — 다른 담당과 겹치는 영역·손대지 말 파일.
+	Boundaries string `json:"boundaries"`
+
+	// BudgetUsd 그 lane 의 첫 task 예산(FR-7.3 task 예산과 같은 칸).
+	BudgetUsd nullable.Nullable[float32] `json:"budget_usd,omitempty"`
+	Criteria  []struct {
+		// Method 완료 기준의 확인 방법 — 테스트 · 산출물 · 실행 결과 · 검토 · 눈으로 확인(화면 라벨은 SCREEN §4.6 「작업 카드」).
+		Method CardCriterionMethod `json:"method"`
+		Text   string              `json:"text"`
+	} `json:"criteria"`
+	Goal         string                    `json:"goal"`
+	OutputFormat nullable.Nullable[string] `json:"output_format,omitempty"`
+	Refs         *[]CardRefInput           `json:"refs,omitempty"`
+}
+
+// TaskCardPatch 수정 요청 때 고친 카드 — 준 칸만 바꾼다(담당은 못 바꾼다). 검사는 TaskCardInput 과 같다.
+type TaskCardPatch struct {
+	Boundaries *string                    `json:"boundaries,omitempty"`
+	BudgetUsd  nullable.Nullable[float32] `json:"budget_usd,omitempty"`
+	Criteria   *[]struct {
+		// Method 완료 기준의 확인 방법 — 테스트 · 산출물 · 실행 결과 · 검토 · 눈으로 확인(화면 라벨은 SCREEN §4.6 「작업 카드」).
+		Method CardCriterionMethod `json:"method"`
+		Text   string              `json:"text"`
+	} `json:"criteria,omitempty"`
+	Goal         *string                   `json:"goal,omitempty"`
+	OutputFormat nullable.Nullable[string] `json:"output_format,omitempty"`
+	Refs         *[]CardRefInput           `json:"refs,omitempty"`
 }
 
 // TaskEvent `task_event` 행. `class` 집합과 `object_ref` 형식은 `contracts/task_event.schema.json`이 정한다 — 여기서는 열어 둔다.
@@ -4240,8 +4800,14 @@ type TaskEvent struct {
 	Verb         nullable.Nullable[string]                 `json:"verb,omitempty"`
 }
 
+// TaskKind v0.3.10 — task 의 종류(PRD FR-3.8). `card` = 위임 카드로 받은 일(위임 · 수정 요청 재진입 · 결과 카드 후속) — 결과 카드가 lane 을 끝내는 문. `question` = 카드 없이 에이전트가 다른 에이전트를 멘션해 생긴 task — 답만 한다(허용 명령 = 역할 표 ∩ 질문 표, 결과 카드 문 없음, lane 상태를 바꾸지 않는다). `normal` = 그 밖(사람의 지시·시스템 트리거·옛 task).
+type TaskKind string
+
 // TaskStatus `task_status` (FR-7.1)
 type TaskStatus string
+
+// TaskTriggerReason v0.3.10 — 메시지가 아닌 서버 사건이 만든 task 의 사유. `result_card_missing` = 카드 task 의 턴이 결과 카드 없이 끝나 서버가 건 후속(PRD FR-3.8 3, 카드당 두 번까지).
+type TaskTriggerReason string
 
 // TaskUsage defines model for TaskUsage.
 type TaskUsage struct {
@@ -4708,6 +5274,9 @@ type AgentId = openapi_types.UUID
 // ArtifactId defines model for ArtifactId.
 type ArtifactId = openapi_types.UUID
 
+// CardId defines model for CardId.
+type CardId = openapi_types.UUID
+
 // ClientSeq defines model for ClientSeq.
 type ClientSeq = int
 
@@ -4848,6 +5417,25 @@ type SignupJSONBody struct {
 	Password    string  `json:"password"`
 }
 
+// SubmitCardResultParams defines parameters for SubmitCardResult.
+type SubmitCardResultParams struct {
+	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
+	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
+}
+
+// ReviseCardJSONBody defines parameters for ReviseCard.
+type ReviseCardJSONBody struct {
+	// Card 수정 요청 때 고친 카드 — 준 칸만 바꾼다(담당은 못 바꾼다). 검사는 TaskCardInput 과 같다.
+	Card   *TaskCardPatch `json:"card,omitempty"`
+	Reason string         `json:"reason"`
+}
+
+// ReviseCardParams defines parameters for ReviseCard.
+type ReviseCardParams struct {
+	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
+	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
+}
+
 // ListReadableRoomsParams defines parameters for ListReadableRooms.
 type ListReadableRoomsParams struct {
 	Q *string `form:"q,omitempty" json:"q,omitempty"`
@@ -4931,6 +5519,11 @@ type SubmitArtifactParams struct {
 	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
 }
 
+// ListRoomCardsParams defines parameters for ListRoomCards.
+type ListRoomCardsParams struct {
+	WorkId *string `form:"work_id,omitempty" json:"work_id,omitempty"`
+}
+
 // RecordDecisionJSONBody defines parameters for RecordDecision.
 type RecordDecisionJSONBody struct {
 	Rationale *string `json:"rationale,omitempty"`
@@ -4973,10 +5566,8 @@ type ListLanesParams struct {
 
 // DelegateLaneJSONBody defines parameters for DelegateLane.
 type DelegateLaneJSONBody struct {
-	AgentId openapi_types.UUID `json:"agent_id"`
-
-	// Brief 위임 브리프. 턴 프롬프트에 그대로 들어간다.
-	Brief     string                `json:"brief"`
+	// Card v0.3.10 — 위임 카드(PRD FR-3.8 1). 검사를 어기면 `422 card_invalid` + `errors[]`(칸 경로·사람 말 사유) — 에이전트가 읽고 고쳐 다시 낸다.
+	Card      TaskCardInput         `json:"card"`
 	DependsOn *[]openapi_types.UUID `json:"depends_on,omitempty"`
 
 	// Profile 프로파일 **이름**(`--profile`). 비우면 참여자 등록 시 프로파일.
@@ -5418,6 +6009,12 @@ type LoginJSONRequestBody LoginJSONBody
 
 // SignupJSONRequestBody defines body for Signup for application/json ContentType.
 type SignupJSONRequestBody SignupJSONBody
+
+// SubmitCardResultJSONRequestBody defines body for SubmitCardResult for application/json ContentType.
+type SubmitCardResultJSONRequestBody = CardResultInput
+
+// ReviseCardJSONRequestBody defines body for ReviseCard for application/json ContentType.
+type ReviseCardJSONRequestBody ReviseCardJSONBody
 
 // RespondHitlRequestJSONRequestBody defines body for RespondHitlRequest for application/json ContentType.
 type RespondHitlRequestJSONRequestBody = HitlResponse
@@ -6144,6 +6741,18 @@ type ServerInterface interface {
 	// Signup 회원가입(S2)
 	// (POST /auth/signup)
 	Signup(w http.ResponseWriter, r *http.Request)
+	// GetCard 카드 한 장(지난 판 포함, `colab card get`)
+	// (GET /cards/{cardId})
+	GetCard(w http.ResponseWriter, r *http.Request, cardId CardId)
+	// AcceptCard 결과 수락(`colab card accept`)
+	// (POST /cards/{cardId}/accept)
+	AcceptCard(w http.ResponseWriter, r *http.Request, cardId CardId)
+	// SubmitCardResult 결과 카드 제출(`colab card report`)
+	// (POST /cards/{cardId}/result)
+	SubmitCardResult(w http.ResponseWriter, r *http.Request, cardId CardId, params SubmitCardResultParams)
+	// ReviseCard 수정 요청 — 같은 lane 재진입, 판 +1(`colab card revise`)
+	// (POST /cards/{cardId}/revise)
+	ReviseCard(w http.ResponseWriter, r *http.Request, cardId CardId, params ReviseCardParams)
 	// GetCliContext 토큰이 가리키는 task · lane · 방 · 에이전트
 	// (GET /cli/context)
 	GetCliContext(w http.ResponseWriter, r *http.Request)
@@ -6225,6 +6834,9 @@ type ServerInterface interface {
 	// BlockRoom 이 방 멈춤(`manual`)
 	// (POST /rooms/{roomId}/block)
 	BlockRoom(w http.ResponseWriter, r *http.Request, roomId RoomId)
+	// ListRoomCards 분담표 — 미션의 카드 트리(`colab card list`)
+	// (GET /rooms/{roomId}/cards)
+	ListRoomCards(w http.ResponseWriter, r *http.Request, roomId RoomId, params ListRoomCardsParams)
 	// GetRoomCost 방 비용(agent · task · 런타임별, 추정 배지)
 	// (GET /rooms/{roomId}/cost)
 	GetRoomCost(w http.ResponseWriter, r *http.Request, roomId RoomId)
@@ -6246,7 +6858,7 @@ type ServerInterface interface {
 	// ListLanes lane 보드(S7 좌열)
 	// (GET /rooms/{roomId}/lanes)
 	ListLanes(w http.ResponseWriter, r *http.Request, roomId RoomId, params ListLanesParams)
-	// DelegateLane 위임 — 새 lane + 멘션 메시지 자동 작성(`colab lane delegate`)
+	// DelegateLane 위임 — 위임 카드로 새 lane(`colab card delegate`)
 	// (POST /rooms/{roomId}/lanes)
 	DelegateLane(w http.ResponseWriter, r *http.Request, roomId RoomId, params DelegateLaneParams)
 	// ListRoomLinks 참고 방 링크
@@ -6881,6 +7493,158 @@ func (siw *ServerInterfaceWrapper) Signup(w http.ResponseWriter, r *http.Request
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Signup(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCard operation middleware
+func (siw *ServerInterfaceWrapper) GetCard(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "cardId" -------------
+	var cardId CardId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cardId", r.PathValue("cardId"), &cardId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cardId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCard(w, r, cardId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptCard operation middleware
+func (siw *ServerInterfaceWrapper) AcceptCard(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "cardId" -------------
+	var cardId CardId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cardId", r.PathValue("cardId"), &cardId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cardId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptCard(w, r, cardId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SubmitCardResult operation middleware
+func (siw *ServerInterfaceWrapper) SubmitCardResult(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "cardId" -------------
+	var cardId CardId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cardId", r.PathValue("cardId"), &cardId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cardId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SubmitCardResultParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKeyOptional
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SubmitCardResult(w, r, cardId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReviseCard operation middleware
+func (siw *ServerInterfaceWrapper) ReviseCard(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "cardId" -------------
+	var cardId CardId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cardId", r.PathValue("cardId"), &cardId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cardId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReviseCardParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKeyOptional
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReviseCard(w, r, cardId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7766,6 +8530,48 @@ func (siw *ServerInterfaceWrapper) BlockRoom(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.BlockRoom(w, r, roomId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRoomCards operation middleware
+func (siw *ServerInterfaceWrapper) ListRoomCards(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRoomCardsParams
+
+	// ------------- Optional query parameter "work_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "work_id", r.URL.Query(), &params.WorkId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "work_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "work_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRoomCards(w, r, roomId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11668,6 +12474,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/messages/{messageId}", wrapper.GetMessage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/rooms/{roomId}/lanes", wrapper.ListLanes)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/lanes", wrapper.DelegateLane)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/rooms/{roomId}/cards", wrapper.ListRoomCards)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cards/{cardId}", wrapper.GetCard)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{cardId}/result", wrapper.SubmitCardResult)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{cardId}/accept", wrapper.AcceptCard)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{cardId}/revise", wrapper.ReviseCard)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/lanes/{laneId}", wrapper.GetLane)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/lanes/{laneId}/tasks", wrapper.ListLaneTasks)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/lanes/{laneId}/restart", wrapper.RestartLane)

@@ -9,7 +9,7 @@ import (
 	"github.com/ingki3/agent-collabortion/cli/internal/colab"
 )
 
-// P2 commands — contracts/colab-cli.md §2.2·2.3: lane delegate ·
+// P2 commands — contracts/colab-cli.md §2.2·2.3: card (v0.9.10) ·
 // status set · decision record · artifact submit/get · review approve/reject.
 // Exit codes are the §2 convention shared with P1 (0 · 2 · 3 · 4 · 5).
 
@@ -23,27 +23,66 @@ func (r *repeatable) Set(v string) error {
 	return nil
 }
 
+// runLane is the retired `colab lane delegate` (colab-cli v0.9.10): nothing
+// goes to the server — exit 3 card_required with the card sentence.
 func runLane(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] != "delegate" {
-		return usage(stderr, "usage: colab lane delegate --agent <name> --brief <text> [--depends-on <lane_id>] [--profile <name>]")
+	return emit(stdout, stderr, nil, colab.LaneDelegateRetired())
+}
+
+// runCard is `colab card delegate|report|accept|revise|get|list` (v0.9.10).
+func runCard(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
+	const u = "usage: colab card delegate --file <card.json> [--depends-on <lane_id>] [--profile <name>] | report --file <result.json> | accept <C-n|id> | revise <C-n|id> --reason <text> [--file <patch.json>] | get <C-n|id> | list"
+	if len(args) == 0 {
+		return usage(stderr, u)
 	}
-	fs, _ := newFlagSet("lane delegate", stderr)
-	session := fs.String("session", "", "room id override (default COLAB_ROOM_ID / token scope)")
-	agent := fs.String("agent", "", "target agent name — must already be a session participant (FR-1.5)")
-	brief := fs.String("brief", "", "delegation brief; goes into the delegate's turn prompt verbatim")
-	profile := fs.String("profile", "", "profile name (default: the participant's registered profile)")
-	key := fs.String("idempotency-key", "", "optional Idempotency-Key (uuid) to make a retry replay")
+	sub, rest := args[0], args[1:]
+	// A leading positional card (accept C-3 --…).
+	pos := ""
+	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+		pos, rest = rest[0], rest[1:]
+	}
+	fs, _ := newFlagSet("card "+sub, stderr)
+	file := fs.String("file", "", "JSON file")
+	reason := fs.String("reason", "", "revise: what is missing")
+	profile := fs.String("profile", "", "delegate: profile name")
+	session := fs.String("session", "", "room id override")
+	key := fs.String("idempotency-key", "", "optional Idempotency-Key (uuid)")
 	var dependsOn repeatable
-	fs.Var(&dependsOn, "depends-on", "lane id this lane waits for; repeatable / comma-separated (v1 stores it, DAG execution is v1.1)")
-	if err := fs.Parse(args[1:]); err != nil {
+	fs.Var(&dependsOn, "depends-on", "delegate: lane id this lane waits for; repeatable / comma-separated")
+	if err := fs.Parse(rest); err != nil {
 		return client.ExitUsage
 	}
-	if fs.NArg() > 0 {
-		return usage(stderr, "lane delegate: unexpected argument %q", fs.Arg(0))
+	if pos == "" && fs.NArg() > 0 {
+		pos = fs.Arg(0)
+	} else if fs.NArg() > 0 {
+		return usage(stderr, "card %s: unexpected argument %q", sub, fs.Arg(0))
 	}
-	v, err := colab.LaneDelegate(context.Background(), client.New(client.FromEnv(getenv)), colab.LaneDelegateArgs{
-		Session: *session, Agent: *agent, Brief: *brief, DependsOn: dependsOn,
-		Profile: *profile, IdempotencyKey: *key})
+	ctx := context.Background()
+	c := client.New(client.FromEnv(getenv))
+	var v any
+	var err error
+	switch sub {
+	case "delegate":
+		v, err = colab.CardDelegate(ctx, c, colab.CardDelegateArgs{File: *file, DependsOn: dependsOn, Profile: *profile, Session: *session, IdempotencyKey: *key})
+	case "report":
+		var r *colab.CardReportResult
+		r, err = colab.CardReport(ctx, c, colab.CardReportArgs{File: *file, IdempotencyKey: *key})
+		if err == nil && r.Notice != "" {
+			// harness v0.9.16: the downgrade notice is one stdout line.
+			_, _ = io.WriteString(stdout, r.Notice+"\n")
+		}
+		v = r
+	case "accept":
+		v, err = colab.CardAccept(ctx, c, colab.CardJudgeArgs{Card: pos, IdempotencyKey: *key})
+	case "revise":
+		v, err = colab.CardRevise(ctx, c, colab.CardJudgeArgs{Card: pos, Reason: *reason, File: *file, IdempotencyKey: *key})
+	case "get":
+		v, err = colab.CardGet(ctx, c, colab.CardGetArgs{Card: pos})
+	case "list":
+		v, err = colab.CardList(ctx, c, colab.CardListArgs{Session: *session})
+	default:
+		return usage(stderr, u)
+	}
 	return emit(stdout, stderr, v, err)
 }
 

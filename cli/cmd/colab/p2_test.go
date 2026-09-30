@@ -22,17 +22,35 @@ import (
 	"github.com/ingki3/agent-collabortion/cli/internal/colab"
 )
 
-// ───────────────────────────── lane delegate ─────────────────────────────
+// ───────────────────────────── card (v0.9.10) ─────────────────────────────
 
-func TestCLILaneDelegate(t *testing.T) {
+func writeCard(t *testing.T, agent string) string {
+	t.Helper()
+	f := filepath.Join(t.TempDir(), "card.json")
+	if err := os.WriteFile(f, []byte(`{"agent":"`+agent+`","goal":"check the numbers","criteria":[{"text":"sums match","method":"review"}],"boundaries":"no edits"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func writeResult(t *testing.T) string {
+	t.Helper()
+	f := filepath.Join(t.TempDir(), "result.json")
+	if err := os.WriteFile(f, []byte(`{"summary":"s","verdicts":[{"criterion":1,"verdict":"unmet"}],"confirmed":["c"],"assumed":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func TestCLICardDelegate(t *testing.T) {
 	s := clienttest.New(t)
 	code, v, _ := exec(t, s.Env(t.TempDir()),
-		"lane", "delegate", "--agent", "@Reviewer", "--brief", "check the numbers",
+		"card", "delegate", "--file", writeCard(t, "@Reviewer"),
 		"--depends-on", "lane-a,lane-b", "--depends-on", "lane-c")
 	if code != client.ExitOK {
 		t.Fatalf("code=%d v=%v", code, v)
 	}
-	if v["agent_id"] != clienttest.ReviewerID || v["agent_name"] != "Reviewer" || v["lane_id"] == "" {
+	if v["agent_id"] != clienttest.ReviewerID || v["card_label"] != "C-1" || v["lane_id"] == "" || v["task_id"] == "" {
 		t.Fatalf("v = %v", v)
 	}
 	dep, _ := s.Delegations[0].Body["depends_on"].([]any)
@@ -41,38 +59,64 @@ func TestCLILaneDelegate(t *testing.T) {
 	}
 }
 
-// E15-02 at the CLI boundary: exit 3, machine code, and the alternative
-// route named in the JSON the agent reads.
-func TestCLILaneDelegateNonParticipantExit3(t *testing.T) {
+// E15-02 at the CLI boundary: exit 3 not_participant, nothing sent.
+func TestCLICardDelegateNonParticipantExit3(t *testing.T) {
 	s := clienttest.New(t)
-	code, v, stderr := exec(t, s.Env(t.TempDir()), "lane", "delegate", "--agent", "Nobody", "--brief", "b")
-	if code != client.ExitRefused {
-		t.Fatalf("code = %d, want 3", code)
-	}
-	if errCode(v) != "not_participant" {
-		t.Fatalf("code = %q, v = %v", errCode(v), v)
-	}
-	e, _ := v["error"].(map[string]any)
-	detail, _ := e["detail"].(string)
-	if !strings.Contains(detail, "hitl ask") {
-		t.Fatalf("detail must name `colab hitl ask`, got %q", detail)
-	}
-	if !strings.Contains(stderr, "not_participant") {
-		t.Fatalf("stderr should carry the one-line reason, got %q", stderr)
+	code, v, stderr := exec(t, s.Env(t.TempDir()), "card", "delegate", "--file", writeCard(t, "Nobody"))
+	if code != client.ExitRefused || errCode(v) != "not_participant" || !strings.Contains(stderr, "not_participant") {
+		t.Fatalf("code = %d v = %v", code, v)
 	}
 	if len(s.Delegations) != 0 {
 		t.Fatal("a non-participant delegation must not reach the server")
 	}
 }
 
-func TestCLILaneDelegateUsage(t *testing.T) {
+// The retired `lane delegate` (any arguments): exit 3 card_required with
+// the contract sentence, nothing sent.
+// 회귀 주입: runLane 이 옛 LaneDelegate 로 보내면 FAIL.
+func TestCLILaneDelegateRetired(t *testing.T) {
+	s := clienttest.New(t)
+	for _, args := range [][]string{
+		{"lane", "delegate", "--agent", "Reviewer", "--brief", "b"},
+		{"lane"},
+	} {
+		code, v, _ := exec(t, s.Env(t.TempDir()), args...)
+		if code != client.ExitRefused || errCode(v) != "card_required" {
+			t.Fatalf("%v: code %d v %v", args, code, v)
+		}
+		if e := v["error"].(map[string]any); e["detail"] != colab.CardRequiredSentence {
+			t.Fatalf("detail = %v", e["detail"])
+		}
+	}
+	if len(s.Requests) != 0 {
+		t.Fatalf("lane delegate reached the server: %v", s.Requests)
+	}
+}
+
+// card report prints the downgrade notice as one stdout line before the JSON.
+func TestCLICardReportNotice(t *testing.T) {
+	s := clienttest.New(t)
+	s.DowngradeNotice = "Criterion 1 said met without evidence, so it was saved as partial. Add evidence and submit again if it is really met."
+	f := filepath.Join(t.TempDir(), "r.json")
+	if err := os.WriteFile(f, []byte(`{"summary":"s","verdicts":[{"criterion":1,"verdict":"met"}],"confirmed":["c"],"assumed":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := run([]string{"card", "report", "--file", f}, clienttest.Getenv(s.Env(t.TempDir())), strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("code %d %s", code, errb.String())
+	}
+	if !strings.HasPrefix(out.String(), s.DowngradeNotice+"\n") {
+		t.Fatalf("stdout = %q", out.String())
+	}
+}
+
+func TestCLICardUsage(t *testing.T) {
 	env := clienttest.New(t).Env(t.TempDir())
 	for _, args := range [][]string{
-		{"lane"},
-		{"lane", "bogus"},
-		{"lane", "delegate", "--brief", "b"},
-		{"lane", "delegate", "--agent", "Reviewer"},
-		{"lane", "delegate", "--agent", "Reviewer", "--brief", "b", "extra"},
+		{"card"},
+		{"card", "bogus"},
+		{"card", "delegate"},
+		{"card", "revise", "C-1"},
 	} {
 		if code, _, _ := exec(t, env, args...); code != client.ExitUsage {
 			t.Fatalf("%v: code = %d, want 2", args, code)
@@ -530,15 +574,30 @@ func TestP2CommandAndMCPToolAgree(t *testing.T) {
 		drop []string
 	}{
 		{
-			name: "lane delegate", tool: "colab_lane_delegate",
-			argv: []string{"lane", "delegate", "--agent", "Reviewer", "--brief", "check", "--depends-on", "l1,l2"},
-			args: map[string]any{"agent": "Reviewer", "brief": "check", "depends_on": []string{"l1", "l2"}},
+			name: "card delegate", tool: "colab_card_delegate",
+			argv: []string{"card", "delegate", "--file", writeCard(t, "Reviewer"), "--depends-on", "l1,l2"},
+			args: map[string]any{"agent": "Reviewer", "goal": "check the numbers", "criteria": []any{map[string]any{"text": "sums match", "method": "review"}}, "boundaries": "no edits", "depends_on": []string{"l1", "l2"}},
 		},
 		{
-			name: "lane delegate refused (E15-02)", tool: "colab_lane_delegate",
-			argv:     []string{"lane", "delegate", "--agent", "Nobody", "--brief", "check"},
-			args:     map[string]any{"agent": "Nobody", "brief": "check"},
+			name: "card delegate refused (E15-02)", tool: "colab_card_delegate",
+			argv:     []string{"card", "delegate", "--file", writeCard(t, "Nobody")},
+			args:     map[string]any{"agent": "Nobody", "goal": "check the numbers", "criteria": []any{map[string]any{"text": "sums match", "method": "review"}}, "boundaries": "no edits"},
 			wantExit: client.ExitRefused,
+		},
+		{
+			name: "card report", tool: "colab_card_report",
+			argv: []string{"card", "report", "--file", writeResult(t)},
+			args: map[string]any{"summary": "s", "verdicts": []any{map[string]any{"criterion": 1, "verdict": "unmet"}}, "confirmed": []any{"c"}, "assumed": []any{}},
+		},
+		{
+			name: "card accept", tool: "colab_card_accept",
+			argv: []string{"card", "accept", "C-1"},
+			args: map[string]any{"card": "C-1"},
+		},
+		{
+			name: "card list", tool: "colab_card_list",
+			argv: []string{"card", "list"},
+			args: map[string]any{},
 		},
 		{
 			name: "status set blocked (E3-05)", tool: "colab_status_set",

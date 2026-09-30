@@ -63,6 +63,9 @@ type p2State struct {
 	// BlockedQuestionID is the question card setTaskStatus reports for
 	// `blocked` (E3-05). Empty means the server posted none.
 	BlockedQuestionID string
+	// ResultCardRequired makes setTaskStatus `done` answer openapi v0.3.10's
+	// 409 result_card_required (a card task with no result card yet).
+	ResultCardRequired bool
 	// TurnEndOnWorking forces turn_end_required on `working` too, so a test
 	// can prove the CLI reports the server's value rather than its own guess.
 	TurnEndOnWorking bool
@@ -110,9 +113,35 @@ func (s *Server) handleP2(w http.ResponseWriter, r *http.Request, path string) b
 		if !ok {
 			return true
 		}
-		agentID, _ := body["agent_id"].(string)
+		// openapi v0.3.10: the body is {card, depends_on, profile}.
+		card, _ := body["card"].(map[string]any)
+		if card == nil {
+			s.problem(w, 422, "card_required", "Card required", "위임은 카드로 합니다 — 목표·완료 기준(확인 방법)·하지 않을 것을 적은 카드를 내세요")
+			return true
+		}
+		agentID, _ := card["agent_id"].(string)
+		var errs []map[string]any
 		if agentID == "" {
-			s.problem(w, 422, "validation_failed", "Validation failed", "agent_id required")
+			errs = append(errs, map[string]any{"field": "card.agent_id", "code": "required", "message": "담당 에이전트를 정하세요"})
+		}
+		if g, _ := card["goal"].(string); strings.TrimSpace(g) == "" {
+			errs = append(errs, map[string]any{"field": "card.goal", "code": "required", "message": "목표를 적으세요"})
+		}
+		crit, _ := card["criteria"].([]any)
+		if len(crit) == 0 {
+			errs = append(errs, map[string]any{"field": "card.criteria", "code": "required", "message": "완료 기준을 하나 이상 적으세요"})
+		}
+		for i, c := range crit {
+			if m, _ := c.(map[string]any); m == nil || m["method"] == nil || m["method"] == "" {
+				errs = append(errs, map[string]any{"field": fmt.Sprintf("card.criteria[%d].method", i), "code": "method_required", "message": "기준마다 확인 방법을 고르세요"})
+			}
+		}
+		if b, _ := card["boundaries"].(string); strings.TrimSpace(b) == "" {
+			errs = append(errs, map[string]any{"field": "card.boundaries", "code": "required", "message": "하지 않을 것을 적으세요"})
+		}
+		if len(errs) > 0 {
+			writeJSON(w, 422, map[string]any{"type": "about:blank", "title": "Card invalid", "status": 422, "code": "card_invalid",
+				"detail": "위임 카드를 고쳐 다시 내세요", "errors": errs})
 			return true
 		}
 		if !isParticipant(agentID) {
@@ -128,7 +157,7 @@ func (s *Server) handleP2(w http.ResponseWriter, r *http.Request, path string) b
 		}
 		s.Seq++
 		msgID := fmt.Sprintf("dddddddd-0000-4000-8000-%012d", s.Seq)
-		brief, _ := body["brief"].(string)
+		goal, _ := card["goal"].(string)
 		writeJSON(w, 201, map[string]any{
 			"lane": map[string]any{
 				"id": laneID, "session_id": SessionID, "agent_id": agentID, "status": "queued",
@@ -136,12 +165,14 @@ func (s *Server) handleP2(w http.ResponseWriter, r *http.Request, path string) b
 			},
 			"message": map[string]any{
 				"id": msgID, "session_id": SessionID, "author_type": "agent", "author_id": AgentID,
-				"parent_id": nil, "content": mentionOf(agentID) + " " + brief, "kind": "chat",
-				"state": "posted", "source_task_id": TaskID, "lane_id": LaneID,
+				"parent_id": nil, "content": mentionOf(agentID) + " " + goal, "kind": "chat",
+				"state": "posted", "source_task_id": TaskID, "lane_id": LaneID, "speech": "delegate",
+				"card_id": CardID, "card_role": "delegation", "card_version": 1,
 				"created_at": time.Now().UTC().Format(time.RFC3339),
 			},
 			"task": map[string]any{"id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", "lane_id": laneID, "attempt": 1,
-				"status": "queued", "queued_reason": nullIfEmpty(s.DelegateQueuedReason)},
+				"status": "queued", "queued_reason": nullIfEmpty(s.DelegateQueuedReason), "kind": "card", "card_id": CardID},
+			"card": map[string]any{"id": CardID, "label": "C-1", "number": 1, "version": 1, "status": "in_progress", "goal": goal},
 		})
 		return true
 
@@ -165,6 +196,10 @@ func (s *Server) handleP2(w http.ResponseWriter, r *http.Request, path string) b
 		}
 		if status == "blocked" && strings.TrimSpace(note) == "" {
 			s.problem(w, 422, "validation_failed", "Validation failed", "note is required for blocked")
+			return true
+		}
+		if status == "done" && s.ResultCardRequired {
+			s.problem(w, 409, "result_card_required", "Result card required", "먼저 결과 카드를 내세요 — colab card report")
 			return true
 		}
 		s.StatusCalls = append(s.StatusCalls, StatusCall{TaskID: taskID, Body: body})

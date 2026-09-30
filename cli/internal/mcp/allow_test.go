@@ -88,7 +88,7 @@ func TestServeAllowRegistersOnlyTheSubset(t *testing.T) {
 		t.Fatalf("tools/list = %v, want the %d reviewer tools", names, len(reviewer))
 	}
 	for _, n := range names {
-		if n == "colab_lane_delegate" || n == "colab_artifact_submit" || n == "colab_hitl_approve_request" || n == "colab_work_propose" {
+		if n == "colab_card_delegate" || n == "colab_artifact_submit" || n == "colab_hitl_approve_request" || n == "colab_work_propose" {
 			t.Fatalf("tools/list registered %s, which the reviewer row denies", n)
 		}
 	}
@@ -96,15 +96,15 @@ func TestServeAllowRegistersOnlyTheSubset(t *testing.T) {
 		t.Fatalf("unknown names reported = %v, want [bogus]", unknown)
 	}
 
-	r := c.call("tools/call", map[string]any{"name": "colab_lane_delegate", "arguments": map[string]any{"agent": "Lead", "brief": "b"}})
+	r := c.call("tools/call", map[string]any{"name": "colab_card_delegate", "arguments": map[string]any{"agent": "Lead", "goal": "g", "criteria": []any{map[string]any{"text": "t", "method": "review"}}, "boundaries": "b"}})
 	if r.Error != nil || r.Result["isError"] != true {
 		t.Fatalf("unregistered tool call = %+v, want an isError tool result (not a protocol error)", r)
 	}
 	e := r.Result["structuredContent"].(map[string]any)["error"].(map[string]any)
-	if e["code"] != client.ErrCodeCommandNotAllowed || e["exit"] != float64(3) || e["command"] != "lane_delegate" {
+	if e["code"] != client.ErrCodeCommandNotAllowed || e["exit"] != float64(3) || e["command"] != "card_delegate" {
 		t.Fatalf("error = %v", e)
 	}
-	if e["detail"] != "이 역할은 lane delegate 를 쓸 수 없습니다" {
+	if e["detail"] != "이 역할은 card delegate 를 쓸 수 없습니다" {
 		t.Fatalf("detail = %q (no context fetched → no role in the sentence)", e["detail"])
 	}
 	if len(s.Requests) != 0 {

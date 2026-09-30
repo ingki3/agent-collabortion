@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e/p5/ci.sh — CI 가 부르는 한 줄: 스택 기동 → 72~78 · 81 · 82 · 84 · 88 · 90 · 91 · 92 · 93 · 94 · 96 · 97 → 표 → 종료. 로컬에서도 같은 명령으로 돈다.
+# e2e/p5/ci.sh — CI 가 부르는 한 줄: 스택 기동 → 72~78 · 81 · 82 · 84 · 88 · 90 · 91 · 92 · 93 · 94 · 96 · 97 · 98 · 100 · 101 → 표 → 종료. 로컬에서도 같은 명령으로 돈다.
 #
 # 실기 대조 스위치(T-I6): 아래 표의 스크립트는 `RUNTIME=real` 로 같은 스크립트가 실기(claude_code·hermes 로그인)에서 돈다.
 #   | 스크립트 | RUNTIME=fake(CI) | RUNTIME=real(로컬) |
@@ -22,7 +22,7 @@
 # 나머지를 다 돌리고 마지막에 표를 낸다 — 한 줄 실패로 뒤의 증거를 잃지 않게. 종료 코드는 실패 수.
 source "$(dirname "$0")/lib_i5.sh"
 cd "$E2E_ROOT"
-SCRIPTS="${SCRIPTS:-72_scenario_a 73_scenario_b 74_scenario_c 75_scenario_d 76_perf 77_security 78_web_s7 81_observations_commands 82_role_gate 84_cli_allowed_commands 88_room_gate 90_room_read 91_works 92_thread_reply 93_message_detail 94_budget_cap 96_message_parts 97_working_focus 98_media_attachments 100_lane_end_join}"
+SCRIPTS="${SCRIPTS:-72_scenario_a 73_scenario_b 74_scenario_c 75_scenario_d 76_perf 77_security 78_web_s7 81_observations_commands 82_role_gate 84_cli_allowed_commands 88_room_gate 90_room_read 91_works 92_thread_reply 93_message_detail 94_budget_cap 96_message_parts 97_working_focus 98_media_attachments 100_lane_end_join 101_task_cards}"
 T_ALL0="$(date +%s)"
 bash e2e/p5/up_i5.sh || { echo "::error::e2e/p5/up.sh failed"; exit 1; }
 trap 'bash e2e/p5/down_i5.sh >/dev/null 2>&1 || true' EXIT

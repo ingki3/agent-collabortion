@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { SettingRow } from "./SettingsTabs";
 import { api, errorMessage } from "@/lib/api/client";
+import { useFlash } from "@/lib/use-flash";
 import { AUTONOMY_TEXT } from "@/lib/room-dialogs";
 import { ISOLATION_LABEL } from "@/lib/settings";
 import {
@@ -98,6 +99,7 @@ export function SubscriptionsSection({ workspaceId }: { workspaceId: string }) {
   const [lanes, setLanes] = useState<{ id: string; label: string; on: boolean | null }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const flash = useFlash();
 
   useEffect(() => {
     void api.get("/workspaces/{workspaceId}/rooms", { path: { workspaceId }, query: { participating: true, limit: 200 } })
@@ -137,7 +139,7 @@ export function SubscriptionsSection({ workspaceId }: { workspaceId: string }) {
 
   const done = (key: string) => {
     setSaved(key);
-    setTimeout(() => setSaved((cur) => (cur === key ? null : cur)), 1500);
+    flash(() => setSaved((cur) => (cur === key ? null : cur)));
   };
   async function putRoom(level: RoomSubscriptionLevel) {
     try {

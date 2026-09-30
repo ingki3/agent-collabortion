@@ -14,6 +14,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/contracts/clock"
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
 	"github.com/ingki3/agent-collabortion/server/internal/cost"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/lanedone"
@@ -229,7 +230,21 @@ type Row struct {
 	// QueuedReason is why a queued task is still waiting (PRD §3.1,
 	// openapi QueuedReason). Written by the claim, cleared at dispatch.
 	QueuedReason *string
+	// Kind · CardID · TriggerReason are openapi v0.3.10 Task (PRD FR-3.8):
+	// normal · card (a delegation card's work — the CARD GATE applies) ·
+	// question (an agent's mention without a card — answers only, never
+	// moves the lane). ResultCardIDs is the server-internal list of result
+	// cards the delegator's turn carries in <result_cards> (Lead 판정 Q4).
+	Kind          string
+	CardID        *uuid.UUID
+	TriggerReason *string
+	ResultCardIDs []uuid.UUID
 }
+
+// IsQuestion reports whether t is a question task: its turn does not move
+// its lane (PRD FR-3.8 2). Every lane write below that is about a TASK's
+// state — dispatch, requeue, failure, cancel, budget pause — skips it.
+func (t *Row) IsQuestion() bool { return t.Kind == "question" }
 
 const selectTask = `
 	SELECT t.id, t.lane_id, t.session_id, s.workspace_id, t.runtime_id, t.agent_id, t.profile_id,
@@ -237,7 +252,7 @@ const selectTask = `
 	       t.coalesced_message_ids, t.attempt, t.max_attempts, t.pending_hitl, t.budget_override,
 	       t.status, t.paused_reason, t.failure_kind, t.not_before, t.stop_reason, t.heartbeat_at,
 	       t.created_at, t.updated_at, t.dispatched_at, t.started_at, t.finished_at,
-	       t.work_id, t.queued_reason::text
+	       t.work_id, t.queued_reason::text, t.kind, t.card_id, t.trigger_reason, t.result_card_ids
 	FROM task t JOIN room s ON s.id = t.session_id`
 
 func scanTask(row pgx.Row) (*Row, error) {
@@ -248,7 +263,7 @@ func scanTask(row pgx.Row) (*Row, error) {
 		&t.CoalescedMessageIDs, &t.Attempt, &t.MaxAttempts, &t.PendingHitl, &t.BudgetOverride,
 		&status, &pausedReason, &failureKind, &t.NotBefore, &t.StopReason, &t.HeartbeatAt,
 		&t.CreatedAt, &t.UpdatedAt, &t.DispatchedAt, &t.StartedAt, &t.FinishedAt,
-		&t.WorkID, &t.QueuedReason)
+		&t.WorkID, &t.QueuedReason, &t.Kind, &t.CardID, &t.TriggerReason, &t.ResultCardIDs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -343,14 +358,18 @@ func (s *Service) MarkDispatched(ctx context.Context, tx pgx.Tx, t *Row, runtime
 		t.ID, t.Attempt, runtimeID, now); err != nil {
 		return "", fmt.Errorf("tasks: attempt row: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'running', updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
-		return "", err
-	}
-	// PRD FR-3.1.5 item 3: until the agent says what it is doing, the lane's
-	// 「지금」 is the server's sentence built from this turn's trigger
-	// (source = derived) — written here, the one moment a turn starts.
-	if err := lanefocus.Derive(ctx, tx, t.LaneID, t.ID, now); err != nil {
-		return "", err
+	// PRD FR-3.8 2: a question's turn does not move its lane — a done lane
+	// stays done while it answers, and a sibling's join reads the truth.
+	if !t.IsQuestion() {
+		if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'running', updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+			return "", err
+		}
+		// PRD FR-3.1.5 item 3: until the agent says what it is doing, the lane's
+		// 「지금」 is the server's sentence built from this turn's trigger
+		// (source = derived) — written here, the one moment a turn starts.
+		if err := lanefocus.Derive(ctx, tx, t.LaneID, t.ID, now); err != nil {
+			return "", err
+		}
 	}
 	token, err := s.Tokens.Issue(ctx, tx, tokens.Scope{
 		TaskID: t.ID, Attempt: t.Attempt, LaneID: t.LaneID, SessionID: t.SessionID, AgentID: t.AgentID, RuntimeID: &runtimeID,
@@ -518,7 +537,7 @@ func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason c
 			WHERE id = $1`, t.ID, notBefore, now, t.ProfileID); err != nil {
 			return fmt.Errorf("tasks: requeue: %w", err)
 		}
-		if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'queued', updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'queued', updated_at = $2 WHERE id = $1 AND NOT $3`, t.LaneID, now, t.IsQuestion()); err != nil {
 			return err
 		}
 		t.Status, t.Attempt, t.FailureKind, t.NotBefore, t.RuntimeID = Queued, t.Attempt+1, nil, notBefore, nil
@@ -532,7 +551,7 @@ func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason c
 			t.ID, fk, now); err != nil {
 			return fmt.Errorf("tasks: fail: %w", err)
 		}
-		if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'failed', finished_at = $2, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+		if err := s.failLane(ctx, tx, t, now); err != nil {
 			return err
 		}
 		t.Status, t.FailureKind, t.FinishedAt = Failed, &fk, &now
@@ -902,7 +921,7 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			// closure just records it, and laneEnded runs it after the commit
 			// (LaneEnded — lock order).
 			if _, err := lanedone.MarkDone(ctx, tx, lanedone.Request{
-				LaneID: t.LaneID, Cause: lanedone.TurnEnd, Now: now,
+				LaneID: t.LaneID, TaskID: t.ID, Cause: lanedone.TurnEnd, Now: now, Hub: s.Hub,
 				AfterDone: func(context.Context, pgx.Tx) error {
 					ends = append(ends, LaneEnd{LaneID: t.LaneID, TaskID: t.ID, Attempt: attempt, Status: "done"})
 					return nil
@@ -952,7 +971,7 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			if err := s.Tokens.Revoke(ctx, tx, t.ID, attempt, "paused"); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'paused', updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'paused', updated_at = $2 WHERE id = $1 AND NOT $3`, t.LaneID, now, t.IsQuestion()); err != nil {
 				return err
 			}
 			t.Status = Paused
@@ -1596,8 +1615,19 @@ func (s *Service) cancelLocked(ctx context.Context, tx pgx.Tx, t *Row, stopReaso
 	// `done` — the output was submitted and the join (FR-6.5) has fired; what
 	// is being stopped is a process that outlived the lane. Every other lane
 	// lands where FR-3.4's table says (failed).
-	if _, err := tx.Exec(ctx, `UPDATE lane SET status = $2, finished_at = $3, updated_at = $3 WHERE id = $1 AND status <> 'done'`, t.LaneID, res.LaneStatus, now); err != nil {
-		return err
+	if t.IsQuestion() {
+		if _, err := lanedone.EndQuestion(ctx, tx, t.ID, t.LaneID, now); err != nil {
+			return err
+		}
+	} else {
+		if _, err := tx.Exec(ctx, `UPDATE lane SET status = $2, finished_at = $3, updated_at = $3 WHERE id = $1 AND status <> 'done'`, t.LaneID, res.LaneStatus, now); err != nil {
+			return err
+		}
+		if res.LaneStatus == "failed" {
+			if err := s.cancelLaneCards(ctx, tx, t.LaneID, now); err != nil {
+				return err
+			}
+		}
 	}
 	fk := res.FailureKind
 	t.Status, t.FailureKind, t.FinishedAt, t.StopReason, t.PausedReason = Status(res.TaskStatus), &fk, &now, stop, nil
@@ -1640,7 +1670,7 @@ func (s *Service) failLocked(ctx context.Context, tx pgx.Tx, t *Row, reason cont
 		t.ID, fk, now); err != nil {
 		return fmt.Errorf("tasks: fail: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'failed', finished_at = $2, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+	if err := s.failLane(ctx, tx, t, now); err != nil {
 		return err
 	}
 	t.Status, t.FailureKind, t.FinishedAt = Failed, &fk, &now
@@ -1675,4 +1705,30 @@ func warnUnwired(msg string) {
 		return
 	}
 	slog.Warn(msg)
+}
+
+// failLane is the lane half of a task's last failure: `failed`, and the
+// lane's open card cancelled (PRD FR-3.8 1 「취소(lane 취소 …)」). A question
+// task's failure leaves its lane alone (FR-3.8 2).
+func (s *Service) failLane(ctx context.Context, tx pgx.Tx, t *Row, now time.Time) error {
+	if t.IsQuestion() {
+		_, err := lanedone.EndQuestion(ctx, tx, t.ID, t.LaneID, now)
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'failed', finished_at = $2, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+		return err
+	}
+	return s.cancelLaneCards(ctx, tx, t.LaneID, now)
+}
+
+// cancelLaneCards cancels the lane's open card and announces it.
+func (s *Service) cancelLaneCards(ctx context.Context, tx pgx.Tx, laneID uuid.UUID, now time.Time) error {
+	ids, err := cards.CancelWhere(ctx, tx, "lane_id", laneID, now)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		cards.Publish(ctx, s.Hub, tx, id, "card.updated")
+	}
+	return nil
 }

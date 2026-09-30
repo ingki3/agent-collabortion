@@ -20,7 +20,7 @@ func TestToolRunsCoverTools(t *testing.T) {
 			t.Errorf("toolRuns has %s, which is not in Tools", name)
 		}
 	}
-	if len(toolRuns) != 16 {
-		t.Errorf("toolRuns has %d entries, want 16", len(toolRuns))
+	if len(toolRuns) != 21 {
+		t.Errorf("toolRuns has %d entries, want 21 (v0.9.10 cards)", len(toolRuns))
 	}
 }

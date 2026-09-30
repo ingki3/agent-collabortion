@@ -11,7 +11,7 @@ import (
 // MCP tool name without its `colab_` prefix (§3).
 type Command string
 
-// The sixteen ColabCommand values, in openapi.yaml enum order (colab-cli.md
+// The twenty-one ColabCommand values (v0.9.10), in openapi.yaml enum order (colab-cli.md
 // §2, then the v0.8 room commands of §2.4a; v0.9 R4 put room_get ·
 // room_messages in the old session reads' slots). commands_test.go checks
 // this list against the openapi.yaml enum.
@@ -22,7 +22,7 @@ const (
 	CmdMessagePost        Command = "message_post"
 	CmdStatusSet          Command = "status_set"
 	CmdDecisionRecord     Command = "decision_record"
-	CmdLaneDelegate       Command = "lane_delegate"
+	CmdCardDelegate       Command = "card_delegate"
 	CmdArtifactSubmit     Command = "artifact_submit"
 	CmdReviewApprove      Command = "review_approve"
 	CmdReviewReject       Command = "review_reject"
@@ -32,14 +32,21 @@ const (
 	CmdRoomList           Command = "room_list"
 	CmdRoomRead           Command = "room_read"
 	CmdWorkPropose        Command = "work_propose"
+	// v0.9.10 (PRD FR-3.8): the card commands.
+	CmdCardReport Command = "card_report"
+	CmdCardAccept Command = "card_accept"
+	CmdCardRevise Command = "card_revise"
+	CmdCardGet    Command = "card_get"
+	CmdCardList   Command = "card_list"
 )
 
 // AllCommands is the closed ColabCommand set.
 var AllCommands = []Command{
 	CmdRoomGet, CmdRoomMessages, CmdArtifactGet, CmdMessagePost, CmdStatusSet, CmdDecisionRecord,
-	CmdLaneDelegate, CmdArtifactSubmit, CmdReviewApprove, CmdReviewReject,
+	CmdCardDelegate, CmdArtifactSubmit, CmdReviewApprove, CmdReviewReject,
 	CmdHitlAsk, CmdHitlApproveRequest, CmdHitlRequestInfo,
 	CmdRoomList, CmdRoomRead, CmdWorkPropose,
+	CmdCardReport, CmdCardAccept, CmdCardRevise, CmdCardGet, CmdCardList,
 }
 
 // IsCommand reports whether s is one of AllCommands.
@@ -157,8 +164,50 @@ func (c *Client) Allow(ctx context.Context, cmd Command) error {
 			return nil
 		}
 	}
-	return NotAllowed(role, cmd, list)
+	return c.Refusal(role, cmd, list)
 }
+
+// Refusal is the exit 3 `command_not_allowed` error for cmd, the one the CLI
+// gate and the MCP server both return. A question turn narrows the list to
+// role ∩ question table (colab-cli v0.9.10 §2.5): a command outside the
+// question table is refused for the turn, not the role — the server's 403
+// says so too (a question-table command missing from the list is the
+// role's). Only a context read already made tells the kind: a wrapper-given
+// list never costs a round trip for the sentence.
+func (c *Client) Refusal(role string, cmd Command, list []string) *Error {
+	e := NotAllowed(role, cmd, list)
+	if cc := c.CachedContext(); cc != nil && cc.TaskKind == TaskKindQuestion && !inQuestionTable(cmd) {
+		e.Detail = QuestionRefusal(cmd)
+	}
+	return e
+}
+
+// TaskKindQuestion is getCliContext.task_kind of a question task.
+const TaskKindQuestion = "question"
+
+// QuestionRefusal is the question turn's refusal (colab-cli v0.9.10 §2.5),
+// byte-for-byte the server's (server/internal/cards QuestionRefusal).
+func QuestionRefusal(cmd Command) string {
+	return fmt.Sprintf(questionRefusalFormat, cmd.CLIName())
+}
+
+// questionCommands is the question table (colab-cli v0.9.10 §2.5) —
+// server/internal/cards QuestionCommands.
+var questionCommands = []Command{
+	"room_get", "room_messages", "room_list", "room_read", "artifact_get",
+	"card_get", "card_list", "message_post", "status_set", "hitl_ask",
+}
+
+func inQuestionTable(cmd Command) bool {
+	for _, c := range questionCommands {
+		if c == cmd {
+			return true
+		}
+	}
+	return false
+}
+
+const questionRefusalFormat = "이 턴은 질문에 답하는 턴입니다 — %s 를 쓸 수 없습니다. 일을 맡기려면 카드로 위임하세요"
 
 // NotAllowed is the exit 3 `command_not_allowed` error: the sentence in
 // Detail and, for --json, role · command · allowed as top-level keys of the

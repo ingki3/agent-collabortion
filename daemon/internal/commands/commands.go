@@ -44,9 +44,11 @@ const AllowFlag = "--allow"
 // the enum line from the contract and fails when this drifts.
 var all = []string{
 	"room_get", "room_messages", "artifact_get", "message_post", "status_set",
-	"decision_record", "lane_delegate", "artifact_submit", "review_approve", "review_reject",
+	"decision_record", "card_delegate", "artifact_submit", "review_approve", "review_reject",
 	"hitl_ask", "hitl_approve_request", "hitl_request_info",
 	"room_list", "room_read", "work_propose",
+	// v0.3.10 (PRD FR-3.8): lane_delegate → card_delegate, + the card commands.
+	"card_report", "card_accept", "card_revise", "card_get", "card_list",
 }
 
 // cliNames is the command as the agent types it (colab-cli.md §2): the two
@@ -68,7 +70,12 @@ var labels = map[string]string{
 	"message_post":         "메시지 게시",
 	"status_set":           "상태 알리기",
 	"decision_record":      "결정 기록",
-	"lane_delegate":        "위임",
+	"card_delegate":        "카드로 위임",
+	"card_report":          "결과 카드 내기",
+	"card_accept":          "결과 수락",
+	"card_revise":          "수정 요청",
+	"card_get":             "카드 보기",
+	"card_list":            "분담표 보기",
 	"artifact_submit":      "아티팩트 제출",
 	"review_approve":       "검토 승인",
 	"review_reject":        "검토 반려",
@@ -120,7 +127,7 @@ func EnvEntry(allowed []string) string {
 	return EnvVar + "=" + List(allowed)
 }
 
-// CLIName is the §2 spelling: `lane delegate` for `lane_delegate`, `hitl
+// CLIName is the §2 spelling: `card delegate` for `card_delegate`, `hitl
 // approve-request` for `hitl_approve_request`. A name this daemon does not
 // know (a newer server) gets the generic rule.
 func CLIName(cmd string) string {

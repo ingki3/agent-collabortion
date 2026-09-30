@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage, isApiError, newIdempotencyKey } from "@/lib/api/client";
+import { useFlash } from "@/lib/use-flash";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import type { Pairing, PairingStatus, Runtime, StreamEvent } from "@/lib/api/types";
 
@@ -70,6 +71,7 @@ export function PairingPanel({ workspaceId, canManage, onReady, now = Date.now }
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
+  const flash = useFlash();
   const [troubleOpen, setTroubleOpen] = useState(false);
   const startedAt = useRef<number>(now());
   const readyFired = useRef(false);
@@ -155,7 +157,7 @@ export function PairingPanel({ workspaceId, canManage, onReady, now = Date.now }
     try {
       await navigator.clipboard.writeText(text);
       setCopied(i);
-      setTimeout(() => setCopied(null), 1500);
+      flash(() => setCopied(null));
     } catch {
       setCopied(null);
     }

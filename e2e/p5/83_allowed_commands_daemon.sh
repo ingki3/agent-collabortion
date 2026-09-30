@@ -5,12 +5,12 @@
 # 비용 한 줄(I-3): 실기 고정 — claude_code haiku 1턴 ≈ $0.01 · ≈ 60s(빌드 포함) (CI 는 안 돈다)
 #
 # 재는 것 (판정 표 out/d13/83-checks.tsv):
-#   D.1 데몬 로그 `allowed commands: <reviewer 10개> (denied: lane_delegate,artifact_submit,hitl_approve_request)`
+#   D.1 데몬 로그 `allowed commands: <reviewer 15개> (denied: card_delegate,artifact_submit,hitl_approve_request,work_propose,card_accept,card_revise)`
 #       — 서버(T-S19)가 번들에 실은 값을 데몬이 읽었다.
 #   D.2 어댑터가 실제로 띄운 colab MCP 서버의 argv 에 `mcp serve --allow <같은 목록>` — colab_bin 자리에 둔
 #       탭(tap) 스크립트가 "$@" 를 기록한 뒤 진짜 colab 으로 exec 한다(p1 lib colab_tap 레시피).
 #   D.3 턴 뒤 데몬 로그 `colab tools registered: …` — raw system/init 의 콜랩 툴 목록(어댑터가 등록한 것).
-#   D.4 그 목록에 `colab_lane_delegate` 가 **없다** — CLI 가 `--allow` 를 구현했을 때만(T-C7). 이 스크립트가
+#   D.4 그 목록에 `colab_card_delegate` 가 **없다** — CLI 가 `--allow` 를 구현했을 때만(T-C7). 이 스크립트가
 #       빌드한 CLI 가 아직 플래그를 모르면(`colab mcp serve --allow x --list` 가 없다) 판정 대신 관측만 적는다:
 #       데몬 몫은 argv 까지(D.2)이고 툴 등록 필터는 CLI 몫이다.
 #   D.5 에이전트가 게시한 메시지에 브리프 [2] 의 "이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청 · 미션 제안을 쓰지 않는다."
@@ -88,9 +88,9 @@ step "A. reviewer 에이전트(claude_code $MODEL) · 세션(assignee=Rev) → �
 INS="You are a reviewer. When the session goal asks you to quote lines from your brief, copy them character for character. $P4_RULES"
 AG="$(api_ok POST "/workspaces/$WS/agents" "$(jq -nc --arg m "$MODEL" --arg i "$INS" '{name:"Rev",role:"reviewer",role_description:"산출물을 검토한다",
   instructions:$i,profiles:[{name:"default",runtime_kind:"claude_code",model:$m,is_default:true}]}')" | jq -r .id)"
-chk A.1 "lane_delegate,artifact_submit,hitl_approve_request,work_propose" \
-  "$(api_ok GET "/agents/$AG" | jq -r '.allowed_commands as $a | ["room_get","room_messages","message_post","status_set","decision_record","lane_delegate","artifact_submit","artifact_get","review_approve","review_reject","hitl_ask","hitl_approve_request","hitl_request_info","room_list","room_read","work_propose"] - $a | join(",")')" \
-  "서버 Agent.allowed_commands — reviewer 가 못 쓰는 4개(colab-cli §2.5 v0.8 · R4 v0.9 room_get·room_messages)"
+chk A.1 "card_delegate,artifact_submit,hitl_approve_request,work_propose,card_accept,card_revise" \
+  "$(api_ok GET "/agents/$AG" | jq -r '.allowed_commands as $a | ["room_get","room_messages","message_post","status_set","decision_record","card_delegate","artifact_submit","artifact_get","review_approve","review_reject","hitl_ask","hitl_approve_request","hitl_request_info","room_list","room_read","work_propose","card_report","card_accept","card_revise","card_get","card_list"] - $a | join(",")')" \
+  "서버 Agent.allowed_commands — reviewer 가 못 쓰는 6개(colab-cli §2.5 v0.9.10 카드)"
 GOAL="Your system prompt (the brief) has a section [2] Workspace rules and colab tools (claude_code reads the tool words, harness v0.9.6). Post ONE message whose body is exactly the line of that section that starts with \"- 이 역할은\" — copy it character for character, nothing else. Then end your turn. $P4_RULES"
 SID="$(create_room_work "$WS" "$(jq -nc --arg g "$GOAL" --arg a "$AG" --arg rt "$RID" \
   '{title:"D13 allowed commands",goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a}],assignee_agent_id:$a,runtime_id:$rt,
@@ -105,17 +105,17 @@ chk D.6 completed "$OUTCOME" "task attempt 1 outcome"
 
 # ───────────────────────────── D ─────────────────────────────────────────────
 step "D. 데몬 로그 · MCP argv · 툴 목록 · 에이전트가 인용한 브리프 줄"
-REVIEWER="room_get,room_messages,artifact_get,message_post,status_set,decision_record,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
-chk D.1 1 "$(grep -c "allowed commands: $REVIEWER (denied: lane_delegate,artifact_submit,hitl_approve_request,work_propose)" "$DLOG" || true)" "데몬이 번들 allowed_commands 를 읽음(로그)"
-chk D.2 1 "$(grep -c "^[0-9]*	mcp serve --allow $REVIEWER\$" "$ARGV" || true)" "colab MCP 서버 argv = mcp serve --allow <reviewer 12개> (탭 기록)"
+REVIEWER="room_get,room_messages,artifact_get,message_post,status_set,decision_record,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read,card_report,card_get,card_list"
+chk D.1 1 "$(grep -c "allowed commands: $REVIEWER (denied: card_delegate,artifact_submit,hitl_approve_request,work_propose,card_accept,card_revise)" "$DLOG" || true)" "데몬이 번들 allowed_commands 를 읽음(로그)"
+chk D.2 1 "$(grep -c "^[0-9]*	mcp serve --allow $REVIEWER\$" "$ARGV" || true)" "colab MCP 서버 argv = mcp serve --allow <reviewer 15개> (탭 기록)"
 TOOLS="$(grep -o "colab tools registered: .*" "$DLOG" | tail -1 | sed 's/colab tools registered: //')"
 chk D.3 yes "$([ -n "$TOOLS" ] && echo yes || echo no)" "raw system/init 의 콜랩 툴 목록을 로그에 남김: $TOOLS"
-HAS_DELEGATE="$(in_list colab_lane_delegate "$TOOLS")"
+HAS_DELEGATE="$(in_list colab_card_delegate "$TOOLS")"
 if [ "$CLI_ALLOW" = yes ]; then
-  chk D.4 no "$HAS_DELEGATE" "툴 목록에 colab_lane_delegate 없음 (CLI --allow 구현됨)"
+  chk D.4 no "$HAS_DELEGATE" "툴 목록에 colab_card_delegate 없음 (CLI --allow 구현됨)"
 else
-  printf 'D.4\tNOTE\t-\t%s\t%s\n' "$HAS_DELEGATE" "colab_lane_delegate 가 툴 목록에 있는가 — CLI 가 --allow 를 아직 모른다(T-C7 전), 데몬은 argv 까지(D.2)" >> "$CHECKS"
-  ok "D.4  (관측) colab_lane_delegate in tools: $HAS_DELEGATE — CLI --allow 는 T-C7"
+  printf 'D.4\tNOTE\t-\t%s\t%s\n' "$HAS_DELEGATE" "colab_card_delegate 가 툴 목록에 있는가 — CLI 가 --allow 를 아직 모른다(T-C7 전), 데몬은 argv 까지(D.2)" >> "$CHECKS"
+  ok "D.4  (관측) colab_card_delegate in tools: $HAS_DELEGATE — CLI --allow 는 T-C7"
 fi
 MSG="$(psqlq "select content from message where session_id='$SID' and author_type='agent' order by created_at limit 1")"
 printf '%s\n' "$MSG" > "$OUT/83-agent-message.txt"

@@ -1,6 +1,8 @@
 package router
 
 import (
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -262,9 +264,26 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 	if err := attach(ctx, tx, sessionID, msgID, attachIDs); err != nil {
 		return nil, uuid.Nil, err
 	}
+	// PRD FR-3.8 2: who this agent message's mentions ask, and whether it
+	// answers a question — decided once, read by the speech and by routing.
+	qp, err := questionPremise(ctx, tx, author, th, platform)
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+	{
+		var ids []uuid.UUID
+		for _, m := range dec.Mentions {
+			if m.Kind == gen.MentionKindAgent {
+				if id, err := uuid.Parse(m.Id); err == nil {
+					ids = append(ids, id)
+				}
+			}
+		}
+		qp.refineAsks(ids)
+	}
 	// openapi v0.3.2 (D24, FR-3.1.3): the speech is decided here, in the same
 	// transaction as the insert, so no reader ever sees a message without one.
-	if err := messages.Store(ctx, tx, msgID, messages.StoreOpts{}); err != nil {
+	if err := messages.Store(ctx, tx, msgID, messages.StoreOpts{MentionAsks: qp.asks, AnswersAsker: qp.askerAddr()}); err != nil {
 		return nil, uuid.Nil, err
 	}
 	// FR-3.2 「사람 (Director가 아니어도 알림)」: a person the body mentions gets
@@ -331,7 +350,7 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 	rc := routeCtx{
 		sessionID: sessionID, wsID: wsID, author: author, th: th, platform: platform,
 		work: attr.WorkID, profiles: profiles, participants: participants,
-		msgID: msgID, originator: originator, newLane: newLane, now: now,
+		msgID: msgID, originator: originator, newLane: newLane, now: now, question: qp,
 	}
 	for _, tr := range dec.Triggers {
 		// FR-3.5: every trigger is judged against the room's trigger history
@@ -450,6 +469,7 @@ type routeCtx struct {
 	originator      *uuid.UUID
 	newLane         bool
 	now             time.Time
+	question        questionCtx
 }
 
 // routed is one trigger's outcome.
@@ -466,11 +486,15 @@ type routed struct {
 func (s *Service) routeTrigger(ctx context.Context, tx pgx.Tx, rc routeCtx, tr Trigger) (routed, error) {
 	var out routed
 	rootLane, topLevel := rc.th.laneFor(tr)
+	// PRD FR-3.8 2: an agent's mention of another agent is a question — it
+	// lands on the lane the rules pick but does not re-enter or move it.
+	question := rc.question.makesQuestion(tr)
 	opts := laneOpts{
 		threadRootLane: rootLane,
 		topLevelMent:   topLevel,
 		forceNewLane:   rc.newLane,
 		work:           rc.work,
+		question:       question,
 	}
 	if tr.Rule == RulePlatform && rc.platform != nil && rc.platform.LaneID != uuid.Nil {
 		// 해소 규칙 1 with the lane named outright: the caller knows which
@@ -519,11 +543,18 @@ func (s *Service) routeTrigger(ctx context.Context, tx pgx.Tx, rc routeCtx, tr T
 			taskID, arrival.CoalescedMessageIDs, rc.now, laneWork); err != nil {
 			return out, err
 		}
+		if err := promoteQueued(ctx, tx, taskID, laneID, question); err != nil {
+			return out, err
+		}
 	} else {
+		kind := ""
+		if question {
+			kind = cards.KindQuestion
+		}
 		if taskID, err = insertQueuedTask(ctx, tx, newQueuedTask{
 			LaneID: laneID, SessionID: rc.sessionID, AgentID: tr.AgentID, ProfileID: rc.profiles[tr.AgentID],
 			TriggerMessageID: rc.msgID, Originator: rc.originator, Coalesced: arrival.CoalescedMessageIDs,
-			Work: laneWork, Now: rc.now,
+			Work: laneWork, Now: rc.now, Kind: kind,
 		}); err != nil {
 			return out, fmt.Errorf("router: %w", err)
 		}
@@ -585,6 +616,10 @@ type laneOpts struct {
 	// mission the triggering message was filed under; the task then runs for
 	// the lane's own mission (bindLaneWork).
 	pinned bool
+	// question: the trigger makes a question task (PRD FR-3.8 2). A reused
+	// lane is NOT re-entered — no `queued`, no reentry_count — so a done lane
+	// stays done and a running one keeps running.
+	question bool
 }
 
 // resolveLaneFor applies PRD FR-3.3's lane resolution (rules 1–4) to one
@@ -614,7 +649,7 @@ func (s *Service) resolveLaneFor(ctx context.Context, tx pgx.Tx, sessionID uuid.
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM lane WHERE id = $1 FOR UPDATE`, d.LaneID); err != nil {
 			return uuid.Nil, false, err
 		}
-		if d.Reentry {
+		if d.Reentry && !o.question {
 			// FR-6.2 allows done/blocked → running. The lane becomes `running`
 			// when the task is dispatched (tasks.MarkDispatched); until then it
 			// is honestly `queued`, because no turn is in flight.
@@ -780,6 +815,17 @@ func returningReport(ctx context.Context, q pgx.Tx, msgID uuid.UUID) (reportRetu
 		SELECT r.author_id, r.source_task_id
 		FROM message m JOIN message r ON r.id = m.responds_to_message_id
 		WHERE m.id = $1 AND m.speech = 'report' AND r.author_type = 'agent'`, msgID).Scan(&requester, &reqTask)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// PRD FR-3.8 2: a question turn's answer to the agent that asked is
+		// the same return as a report (FR-3.5 v0.19.12) — the asker wakes at
+		// the depth it asked from, so question↔answer does not deepen the
+		// chain. The question is the question task's trigger message.
+		err = q.QueryRow(ctx, `
+			SELECT r.author_id, r.source_task_id
+			FROM message m JOIN task t ON t.id = m.source_task_id AND t.kind = 'question'
+			JOIN message r ON r.id = t.trigger_message_id
+			WHERE m.id = $1 AND m.speech = 'answer' AND r.author_type = 'agent'`, msgID).Scan(&requester, &reqTask)
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return reportReturn{}, nil
 	}
@@ -1080,6 +1126,10 @@ type thread struct {
 	// RootLaneAgent the agent that lane belongs to.
 	RootLane      uuid.UUID
 	RootLaneAgent uuid.UUID
+	// RootKind is the root's message_kind — a `blocked_q` root makes the
+	// delegator's reply the answer that re-enters the child (FR-6.2.1), never
+	// a question (Lead 판정 Q1).
+	RootKind string
 }
 
 // laneFor is lane rule 1's premise for one trigger: the root's lane, and
@@ -1141,8 +1191,8 @@ func threadPremise(ctx context.Context, q db.DBTX, sessionID uuid.UUID, parentID
 	}
 	var rType string
 	var rAuthor, rTask *uuid.UUID
-	if err := q.QueryRow(ctx, `SELECT author_type::text, author_id, source_task_id FROM message WHERE id = $1`, *th.Parent).
-		Scan(&rType, &rAuthor, &rTask); err != nil {
+	if err := q.QueryRow(ctx, `SELECT author_type::text, author_id, source_task_id, kind::text FROM message WHERE id = $1`, *th.Parent).
+		Scan(&rType, &rAuthor, &rTask, &th.RootKind); err != nil {
 		return th, err
 	}
 	if rType == "agent" {

@@ -299,6 +299,11 @@ func (s *Server) unblockRoomForLoop(ctx context.Context, roomID uuid.UUID, now t
 				return err
 			}
 		}
+		// #400 리뷰 NN2: a revise the pause stopped left its version without
+		// a task — queue it now, or the join above that card never fires.
+		if _, err := s.Router.ResumeStalledCards(ctx, tx, roomID, now); err != nil {
+			return err
+		}
 		roomgate.PublishUpdated(ctx, s.Hub, tx, roomID)
 		return nil
 	})

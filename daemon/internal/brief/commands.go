@@ -20,7 +20,7 @@ var sectionRe = regexp.MustCompile(`^(## )?\[(\d)\] `)
 // role, constant for the agent's lifetime).
 //
 // Defensively, a [2] line that names a denied command in command position
-// (`colab lane delegate`, or the tool name colab_lane_delegate) is dropped:
+// (`colab card delegate`, or the tool name colab_card_delegate) is dropped:
 // today's server [2] only names message_post/room_messages/room_get,
 // which every role has, so nothing is dropped in practice — the rule is
 // there for the day a server line says otherwise.

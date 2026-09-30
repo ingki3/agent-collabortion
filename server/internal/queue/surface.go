@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ingki3/agent-collabortion/contracts"
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
 )
 
 // Surface is every sentence the server writes that names a colab command,
@@ -228,7 +229,8 @@ func (s Surface) Section2() string {
 		s.MediaRule + "\n" +
 		s.FoldersRule + "\n" +
 		s.FocusRule +
-		"- Mentioning an agent creates work for it; do not mention agents just to acknowledge.\n" +
+		"- Mentioning another agent asks it a question — it answers and does no new work; work is handed over only with a card. Do not mention agents just to acknowledge.\n" +
+		cards.ReportRule(s.Kind == SurfaceMCP) +
 		QuietRule +
 		"- Your COLAB_TASK_TOKEN is valid for this attempt only; if a call returns token_revoked, stop immediately.\n\n"
 }

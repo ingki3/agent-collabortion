@@ -54,10 +54,10 @@ chk L0d "max_hops_per_hour 도 남는다 (S-26)"                  60 "$(jq -r '.
 step "2. 서로만 멘션하는 두 에이전트 · 세션"
 PING_LEAD='You are Lead. Always answer in Korean and keep every message under 25 words.
 Every time you are triggered: call colab_message_post exactly once with a one-line follow-up question about the topic and set mention to ["@Researcher"]. Then end your turn.
-Never call colab_status_set. Never call colab_lane_delegate. Never run shell commands, never read or write files, never search the web.'
+Never call colab_status_set. Never call colab_card_delegate. Never run shell commands, never read or write files, never search the web.'
 PING_RES='You are Researcher. Always answer in Korean and keep every message under 25 words.
 Every time you are triggered: call colab_message_post exactly once with a one-line answer AND a one-line question back, and set mention to ["@Lead"]. Then end your turn.
-Never call colab_status_set. Never call colab_lane_delegate. Never run shell commands, never read or write files, never search the web.'
+Never call colab_status_set. Never call colab_card_delegate. Never run shell commands, never read or write files, never search the web.'
 LEAD="$(create_agent_p2 "$WS" Lead       lead       "$MODEL" "$PING_LEAD" '팀을 이끈다')"
 RSCH="$(create_agent_p2 "$WS" Researcher researcher "$MODEL" "$PING_RES"  '조사한다')"
 SESSION="$(create_room_work "$WS" "$(jq -nc --arg t "핑퐁 (E4-03)" --arg g "$SCENARIO_GOAL" \

@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
+
 	"context"
 	"encoding/json"
 	"fmt"
@@ -79,6 +81,14 @@ func (s *Server) cancelWorkTx(ctx context.Context, tx pgx.Tx, roomID, workID uui
 	}
 	if err := s.cancelScopeTasks(ctx, tx, workScope(workID), now); err != nil {
 		return err
+	}
+	// PRD FR-3.8 1: the mission's open cards are cancelled with it.
+	closedCards, err := cards.CancelWhere(ctx, tx, "work_id", workID, now)
+	if err != nil {
+		return err
+	}
+	for _, id := range closedCards {
+		cards.Publish(ctx, s.Hub, tx, id, "card.updated")
 	}
 	var others int
 	if err := tx.QueryRow(ctx, `

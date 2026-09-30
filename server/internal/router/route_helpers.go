@@ -1,6 +1,8 @@
 package router
 
 import (
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
+
 	"context"
 	"errors"
 	"fmt"
@@ -89,6 +91,13 @@ func lockQueuedTask(ctx context.Context, tx pgx.Tx, laneID uuid.UUID) (queuedTas
 
 // newQueuedTask is a `queued` task row a trigger makes when its lane has none
 // to merge into (Post, wake) or a delegation's first task (Delegate).
+//
+// Kind is openapi TaskKind (PRD FR-3.8). "" = the lane decides: a lane whose
+// card is open (in_progress) gets a CARD task — the card lane does not end
+// without a result card, whatever woke it (a person's word, a join, a
+// platform trigger; Lead 판정 Q3) — every other lane a normal one. That one
+// rule lives here so no trigger path can make a card lane's turn that skips
+// the gate. Question tasks are named by the caller (KindQuestion).
 type newQueuedTask struct {
 	LaneID, SessionID, AgentID, ProfileID, TriggerMessageID uuid.UUID
 	DelegatedFrom                                           *uuid.UUID
@@ -96,6 +105,8 @@ type newQueuedTask struct {
 	Coalesced                                               []uuid.UUID // nil → '{}'
 	Work                                                    *uuid.UUID
 	Now                                                     time.Time
+	Kind                                                    string
+	CardID                                                  *uuid.UUID
 }
 
 func insertQueuedTask(ctx context.Context, tx pgx.Tx, n newQueuedTask) (uuid.UUID, error) {
@@ -103,16 +114,54 @@ func insertQueuedTask(ctx context.Context, tx pgx.Tx, n newQueuedTask) (uuid.UUI
 	if coalesced == nil {
 		coalesced = []uuid.UUID{} // the column is NOT NULL DEFAULT '{}'
 	}
+	kind, card := n.Kind, n.CardID
+	if kind == "" {
+		kind = cards.KindNormal
+		open, err := cards.OpenOnLane(ctx, tx, n.LaneID)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if open != uuid.Nil {
+			kind, card = cards.KindCard, &open
+		}
+	}
 	var id uuid.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, delegated_from_task_id,
-		                  originator_user_id, coalesced_message_ids, status, created_at, updated_at, work_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued', $9, $9, $10) RETURNING id`,
+		                  originator_user_id, coalesced_message_ids, status, created_at, updated_at, work_id, kind, card_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued', $9, $9, $10, $11, $12) RETURNING id`,
 		n.LaneID, n.SessionID, n.AgentID, n.ProfileID, n.TriggerMessageID, n.DelegatedFrom,
-		n.Originator, coalesced, n.Now, n.Work).Scan(&id); err != nil {
+		n.Originator, coalesced, n.Now, n.Work, kind, card).Scan(&id); err != nil {
 		return uuid.Nil, fmt.Errorf("insert task: %w", err)
 	}
 	return id, nil
+}
+
+// promoteQueued is FR-3.4's merge meeting FR-3.8's kinds: a non-question
+// trigger that coalesces onto a queued QUESTION task turns that task into the
+// lane's own kind (the turn now carries work, not only a question) — never
+// the other way (a question riding in a card turn is answered there).
+func promoteQueued(ctx context.Context, tx pgx.Tx, taskID, laneID uuid.UUID, question bool) error {
+	if question {
+		return nil
+	}
+	var kind string
+	if err := tx.QueryRow(ctx, `SELECT kind FROM task WHERE id = $1`, taskID).Scan(&kind); err != nil {
+		return err
+	}
+	if kind != cards.KindQuestion {
+		return nil
+	}
+	open, err := cards.OpenOnLane(ctx, tx, laneID)
+	if err != nil {
+		return err
+	}
+	if open != uuid.Nil {
+		_, err = tx.Exec(ctx, `UPDATE task SET kind = 'card', card_id = $2 WHERE id = $1`, taskID, open)
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE task SET kind = 'normal' WHERE id = $1`, taskID)
+	return err
 }
 
 // laneCandidates loads an agent's existing lanes in a room — the candidates

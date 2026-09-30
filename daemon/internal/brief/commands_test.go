@@ -34,7 +34,7 @@ const serverBriefMCP = "[1] Agent Identity\nYou are Rev, reviewer in the Colab w
 
 const shell = acp.ToolSurfaceCLIWrapper
 
-var reviewer = []string{"room_get", "room_messages", "message_post", "status_set", "decision_record", "artifact_get", "review_approve", "review_reject", "hitl_ask", "hitl_request_info", "room_list", "room_read"}
+var reviewer = []string{"room_get", "room_messages", "message_post", "status_set", "decision_record", "artifact_get", "review_approve", "review_reject", "hitl_ask", "hitl_request_info", "room_list", "room_read", "card_report", "card_get", "card_list"}
 
 func section2(t *testing.T, text string) string {
 	t.Helper()
@@ -58,13 +58,13 @@ func TestRestrictCommandsReviewer(t *testing.T) {
 		t.Fatalf("allowed list missing or misspelt:\n%s", s2)
 	}
 	// Denied ones are NOT there as commands — neither CLI nor tool spelling.
-	for _, bad := range []string{"lane delegate", "colab_lane_delegate", "artifact submit", "approve-request", "work propose", "colab_work_propose"} {
+	for _, bad := range []string{"card delegate", "colab_card_delegate", "artifact submit", "approve-request", "work propose", "colab_work_propose"} {
 		if strings.Contains(s2, bad) {
 			t.Fatalf("denied command %q named in [2]:\n%s", bad, s2)
 		}
 	}
 	// … but the role is told, in the person's words, in one line.
-	if !strings.Contains(s2, "- 이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청 · 미션 제안을 쓰지 않는다.") {
+	if !strings.Contains(s2, "- 이 역할은 카드로 위임 · 아티팩트 제출 · 완료 승인 요청 · 미션 제안 · 결과 수락 · 수정 요청을 쓰지 않는다.") {
 		t.Fatalf("no 'does not use' line:\n%s", s2)
 	}
 	// Sections after [2] are untouched, and the separator before [4] survives.
@@ -93,9 +93,9 @@ func TestRestrictedLinesGetTheWrapperPath(t *testing.T) {
 // Everything allowed (lead · custom): the list line, no "does not use" line.
 func TestRestrictCommandsEverything(t *testing.T) {
 	// The server's allowed_commands order (openapi enum = gen.ColabCommandValues, #324 NN1).
-	all := []string{"room_get", "room_messages", "artifact_get", "message_post", "status_set", "decision_record", "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info", "room_list", "room_read", "work_propose"}
+	all := []string{"room_get", "room_messages", "artifact_get", "message_post", "status_set", "decision_record", "card_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info", "room_list", "room_read", "work_propose", "card_report", "card_accept", "card_revise", "card_get", "card_list"}
 	s2 := section2(t, RestrictCommands(serverBrief, all, shell))
-	if !strings.Contains(s2, "`colab lane delegate`") || strings.Contains(s2, "쓰지 않는다") {
+	if !strings.Contains(s2, "`colab card delegate`") || strings.Contains(s2, "쓰지 않는다") {
 		t.Fatalf("everything-allowed shape wrong:\n%s", s2)
 	}
 }
@@ -114,9 +114,9 @@ func TestRestrictCommandsEmptyOrNoSection(t *testing.T) {
 // Defensive: a server [2] line that names a denied command in command
 // position is dropped, in either spelling.
 func TestRestrictCommandsDropsDeniedServerLines(t *testing.T) {
-	text := "[2] Workspace rules and colab CLI\n- Post with `colab message post`.\n- Hand out work with `colab lane delegate --to X`.\n- Or the colab_hitl_approve_request tool.\n- the lane keyword in prose stays\n\n[4] Session\n"
+	text := "[2] Workspace rules and colab CLI\n- Post with `colab message post`.\n- Hand out work with `colab card delegate --file X`.\n- Or the colab_hitl_approve_request tool.\n- the lane keyword in prose stays\n\n[4] Session\n"
 	got := RestrictCommands(text, reviewer, shell)
-	if strings.Contains(got, "lane delegate") || strings.Contains(got, "colab_hitl_approve_request") {
+	if strings.Contains(got, "card delegate") || strings.Contains(got, "colab_hitl_approve_request") {
 		t.Fatalf("denied line kept:\n%s", got)
 	}
 	if !strings.Contains(got, "`colab message post`.") || !strings.Contains(got, "lane keyword in prose stays") {
@@ -155,26 +155,26 @@ func TestRestrictCommandsMCPSurfaceNamesTools(t *testing.T) {
 	got := RestrictCommands(serverBriefMCP, reviewer, acp.ToolSurfaceMCP)
 	s2 := section2(t, got)
 	if !strings.Contains(s2, "- 이 역할이 쓸 수 있는 colab 툴: `colab_room_get`, `colab_room_messages`, `colab_message_post`,") ||
-		!strings.Contains(s2, "`colab_room_list`, `colab_room_read`.") {
+		!strings.Contains(s2, "`colab_room_list`, `colab_room_read`, `colab_card_report`, `colab_card_get`, `colab_card_list`.") {
 		t.Fatalf("mcp allowed line is not in tool names:\n%s", s2)
 	}
 	if strings.Contains(s2, "`colab ") {
 		t.Fatalf("mcp [2] names a shell command:\n%s", s2)
 	}
-	for _, bad := range []string{"colab_lane_delegate", "colab_artifact_submit", "colab_work_propose"} {
+	for _, bad := range []string{"colab_card_delegate", "colab_artifact_submit", "colab_work_propose"} {
 		if strings.Contains(s2, bad) {
 			t.Fatalf("denied tool %q named in [2]:\n%s", bad, s2)
 		}
 	}
-	if !strings.Contains(s2, "- 이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청 · 미션 제안을 쓰지 않는다.") {
+	if !strings.Contains(s2, "- 이 역할은 카드로 위임 · 아티팩트 제출 · 완료 승인 요청 · 미션 제안 · 결과 수락 · 수정 요청을 쓰지 않는다.") {
 		t.Fatalf("no 'does not use' line:\n%s", s2)
 	}
 	if !strings.HasPrefix(got, serverBriefMCP[:strings.Index(serverBriefMCP, "\n\n[4]")]) {
 		t.Fatalf("server [2] text changed:\n%s", got)
 	}
 	// And a denied tool line from the server is dropped on this surface too.
-	text := "[2] Workspace rules and colab tools\n- Post with the `colab_message_post` tool.\n- Hand out work with the `colab_lane_delegate` tool.\n\n[4] Session\n"
-	if g := RestrictCommands(text, reviewer, acp.ToolSurfaceMCP); strings.Contains(g, "colab_lane_delegate") || !strings.Contains(g, "`colab_message_post` tool.") {
+	text := "[2] Workspace rules and colab tools\n- Post with the `colab_message_post` tool.\n- Hand out work with the `colab_card_delegate` tool.\n\n[4] Session\n"
+	if g := RestrictCommands(text, reviewer, acp.ToolSurfaceMCP); strings.Contains(g, "colab_card_delegate") || !strings.Contains(g, "`colab_message_post` tool.") {
 		t.Fatalf("mcp denied-line drop wrong:\n%s", g)
 	}
 }

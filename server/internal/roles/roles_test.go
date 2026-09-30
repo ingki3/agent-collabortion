@@ -1,6 +1,8 @@
 package roles
 
 import (
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
+
 	"os"
 	"path/filepath"
 	"regexp"
@@ -62,6 +64,7 @@ func contractTable(t *testing.T) map[gen.AgentRole]map[gen.ColabCommand]bool {
 		}
 	}
 	code := regexp.MustCompile("`([a-z_]+)`")
+	oldName := regexp.MustCompile("옛 `[a-z_]+`")
 	out := map[gen.AgentRole]map[gen.ColabCommand]bool{}
 	for _, l := range lines[2:] { // skip header and the |---| rule
 		c := cells(l)
@@ -69,7 +72,10 @@ func contractTable(t *testing.T) map[gen.AgentRole]map[gen.ColabCommand]bool {
 			t.Fatalf("§2.5 row has %d cells, want %d: %s", len(c), len(header)+1, l)
 		}
 		var cmds []gen.ColabCommand
-		for _, m := range code.FindAllStringSubmatch(c[0], -1) {
+		// v0.9.10: 「(옛 `lane_delegate`)」 names the command a row replaced,
+		// not a command of the row.
+		first := oldName.ReplaceAllString(c[0], "")
+		for _, m := range code.FindAllStringSubmatch(first, -1) {
 			cmds = append(cmds, gen.ColabCommand(m[1]))
 		}
 		if len(cmds) == 0 {
@@ -172,19 +178,71 @@ func TestAllCommandsIsTheClosedEnum(t *testing.T) {
 	if len(AllowedCommands(gen.Lead)) != len(want) || len(AllowedCommands(gen.Custom)) != len(want) {
 		t.Errorf("lead and custom get everything: lead %d custom %d of %d", len(AllowedCommands(gen.Lead)), len(AllowedCommands(gen.Custom)), len(want))
 	}
-	if s := AllowedCommandStrings(gen.Reviewer); len(s) != 12 || s[0] != "room_get" {
+	if s := AllowedCommandStrings(gen.Reviewer); len(s) != 15 || s[0] != "room_get" {
 		t.Errorf("AllowedCommandStrings(reviewer) = %v", s)
 	}
 }
 
 func TestCLIName(t *testing.T) {
 	for cmd, want := range map[gen.ColabCommand]string{
-		gen.ColabCommandLaneDelegate: "lane delegate", gen.ColabCommandRoomGet: "room get", gen.ColabCommandReviewApprove: "review approve",
+		gen.ColabCommandCardDelegate: "card delegate", gen.ColabCommandCardReport: "card report", gen.ColabCommandRoomGet: "room get", gen.ColabCommandReviewApprove: "review approve",
 		gen.ColabCommandHitlApproveRequest: "hitl approve-request", gen.ColabCommandHitlRequestInfo: "hitl request-info", gen.ColabCommandHitlAsk: "hitl ask",
 		gen.ColabCommandRoomList: "room list", gen.ColabCommandRoomRead: "room read", gen.ColabCommandWorkPropose: "work propose",
 	} {
 		if got := CLIName(cmd); got != want {
 			t.Errorf("CLIName(%s) = %q, want %q", cmd, got, want)
 		}
+	}
+}
+
+// TestQuestionTableMatchesContract is colab-cli.md §2.5 v0.9.10's 질문 표
+// (the bullet after the role table) against cards.QuestionCommands — the one
+// table the bundle, getCliContext and the server gate read (AllowsFor).
+func TestQuestionTableMatchesContract(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "contracts", "colab-cli.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(raw)
+	i := strings.Index(src, "질문 표: ")
+	if i < 0 {
+		t.Fatal("colab-cli.md §2.5 has no 질문 표")
+	}
+	line := src[i:]
+	line = line[:strings.Index(line, "\n")]
+	line = line[:strings.Index(line, "거부 문장")]
+	// The table is the list up to 「. 」 (the sentence after it talks about
+	// allowed_commands); `status_set`'s value note is in parentheses.
+	list := line[:strings.Index(line, ". ")]
+	list = regexp.MustCompile(`\([^)]*\)`).ReplaceAllString(list, "")
+	var got []string
+	for _, m := range regexp.MustCompile("`([a-z_]+)`").FindAllStringSubmatch(list, -1) {
+		got = append(got, m[1])
+	}
+	if !slices.Equal(got, cards.QuestionCommands) {
+		t.Errorf("질문 표 = %v\n  cards.QuestionCommands = %v", got, cards.QuestionCommands)
+	}
+	if !strings.Contains(line, "`status_set`(값 `working`·`blocked` 만)") {
+		t.Errorf("질문 표 status_set 값 필터 문구가 바뀌었다: %s", line)
+	}
+	// role ∩ question table.
+	for _, role := range []gen.AgentRole{gen.Lead, gen.Researcher, gen.Reviewer, gen.Custom} {
+		q := AllowedFor(role, cards.KindQuestion)
+		for _, c := range q {
+			if !cards.InQuestionTable(string(c)) || !Allows(role, c) {
+				t.Errorf("%s question list has %s", role, c)
+			}
+		}
+		if slices.Contains(q, gen.ColabCommandArtifactSubmit) || slices.Contains(q, gen.ColabCommandCardDelegate) {
+			t.Errorf("%s question list = %v", role, q)
+		}
+		if !slices.Equal(AllowedFor(role, cards.KindCard), AllowedCommands(role)) || !slices.Equal(AllowedFor(role, cards.KindNormal), AllowedCommands(role)) {
+			t.Errorf("%s: only a question narrows the list", role)
+		}
+	}
+	// reviewer has no artifact_submit in its role row; the question table
+	// has none either — the intersection is 10 minus what the role lacks.
+	if n := len(AllowedFor(gen.Lead, cards.KindQuestion)); n != len(cards.QuestionCommands) {
+		t.Errorf("lead question list = %d, want %d", n, len(cards.QuestionCommands))
 	}
 }

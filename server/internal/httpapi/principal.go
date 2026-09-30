@@ -31,6 +31,8 @@ type Principal struct {
 	// agentRole caches the task principal's agent role for this request
 	// (Server.agentRole). Never trusted from the token — see agentRole.
 	agentRole *string
+	// taskKind is the task's kind, cached like agentRole (PRD FR-3.8 2).
+	taskKind *string
 }
 
 // DaemonScope is a verified `cdt_` bearer on the openapi surface.

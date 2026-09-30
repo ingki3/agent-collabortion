@@ -14,6 +14,7 @@ package roles
 import (
 	"strings"
 
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 )
 
@@ -28,7 +29,10 @@ var all = gen.ColabCommandValues
 // denied is colab-cli.md §2.5 by exception: the commands each role does NOT
 // have. Roles absent here (lead · custom) have everything.
 //
-//   - researcher · writer · engineer: no `lane delegate` (delegation is the
+//   - researcher · writer · engineer: no `card delegate` · `card accept` ·
+//     `card revise` (v0.9.10 — delegating and judging a card is the lead's;
+//     `card report/get/list` are everyone's, a report is gated per task by
+//     the server: not_card_task), no `lane delegate` (delegation is the
 //     Lead's — a worker that delegates deepens the chain, FR-3.5), no
 //     `review approve/reject` (nobody approves their own output), no
 //     `hitl approve-request` (asking for completion approval is the Lead's);
@@ -40,10 +44,10 @@ var all = gen.ColabCommandValues
 //     call; `room list/read` are for everyone, since reading context is not
 //     a risky act and the person-originator rule already gates it).
 var denied = map[gen.AgentRole]map[gen.ColabCommand]bool{
-	gen.Researcher: {gen.ColabCommandLaneDelegate: true, gen.ColabCommandReviewApprove: true, gen.ColabCommandReviewReject: true, gen.ColabCommandHitlApproveRequest: true, gen.ColabCommandWorkPropose: true},
-	gen.Writer:     {gen.ColabCommandLaneDelegate: true, gen.ColabCommandReviewApprove: true, gen.ColabCommandReviewReject: true, gen.ColabCommandHitlApproveRequest: true, gen.ColabCommandWorkPropose: true},
-	gen.Engineer:   {gen.ColabCommandLaneDelegate: true, gen.ColabCommandReviewApprove: true, gen.ColabCommandReviewReject: true, gen.ColabCommandHitlApproveRequest: true, gen.ColabCommandWorkPropose: true},
-	gen.Reviewer:   {gen.ColabCommandLaneDelegate: true, gen.ColabCommandArtifactSubmit: true, gen.ColabCommandHitlApproveRequest: true, gen.ColabCommandWorkPropose: true},
+	gen.Researcher: {gen.ColabCommandCardDelegate: true, gen.ColabCommandCardAccept: true, gen.ColabCommandCardRevise: true, gen.ColabCommandReviewApprove: true, gen.ColabCommandReviewReject: true, gen.ColabCommandHitlApproveRequest: true, gen.ColabCommandWorkPropose: true},
+	gen.Writer:     {gen.ColabCommandCardDelegate: true, gen.ColabCommandCardAccept: true, gen.ColabCommandCardRevise: true, gen.ColabCommandReviewApprove: true, gen.ColabCommandReviewReject: true, gen.ColabCommandHitlApproveRequest: true, gen.ColabCommandWorkPropose: true},
+	gen.Engineer:   {gen.ColabCommandCardDelegate: true, gen.ColabCommandCardAccept: true, gen.ColabCommandCardRevise: true, gen.ColabCommandReviewApprove: true, gen.ColabCommandReviewReject: true, gen.ColabCommandHitlApproveRequest: true, gen.ColabCommandWorkPropose: true},
+	gen.Reviewer:   {gen.ColabCommandCardDelegate: true, gen.ColabCommandCardAccept: true, gen.ColabCommandCardRevise: true, gen.ColabCommandArtifactSubmit: true, gen.ColabCommandHitlApproveRequest: true, gen.ColabCommandWorkPropose: true},
 }
 
 // AllowedCommands is the role's row of colab-cli.md §2.5, in §2 order. An
@@ -75,6 +79,37 @@ func AllowedCommandStrings(role gen.AgentRole) []string {
 // Allows reports whether role may use cmd.
 func Allows(role gen.AgentRole, cmd gen.ColabCommand) bool {
 	return !denied[role][cmd]
+}
+
+// AllowsFor is Allows for one task: a question task (PRD FR-3.8 2,
+// colab-cli.md §2.5 v0.9.10) is the role's row ∩ the question table. The
+// bundle, getCliContext and the server gate all read this one function.
+func AllowsFor(role gen.AgentRole, taskKind string, cmd gen.ColabCommand) bool {
+	if !Allows(role, cmd) {
+		return false
+	}
+	return taskKind != cards.KindQuestion || cards.InQuestionTable(string(cmd))
+}
+
+// AllowedFor is AllowedCommands for one task (AllowsFor), in §2 order.
+func AllowedFor(role gen.AgentRole, taskKind string) []gen.ColabCommand {
+	out := []gen.ColabCommand{}
+	for _, c := range AllowedCommands(role) {
+		if AllowsFor(role, taskKind, c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// AllowedForStrings is AllowedFor as the daemon bundle carries it.
+func AllowedForStrings(role gen.AgentRole, taskKind string) []string {
+	cmds := AllowedFor(role, taskKind)
+	out := make([]string, 0, len(cmds))
+	for _, c := range cmds {
+		out = append(out, string(c))
+	}
+	return out
 }
 
 // cliNames is the command as the agent typed it (colab-cli.md §2 — the MCP

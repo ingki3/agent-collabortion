@@ -421,7 +421,7 @@ func TestTQuietDelegateHeld(t *testing.T) {
 	f := newP2Fixture(t)
 	tm := f.quietTeam(t)
 	c := &client{t: t, srv: f.api.srv, bearer: tm.leadTok}
-	out := c.must(201, "POST", f.p+"/rooms/"+tm.room+"/lanes", map[string]any{"agent_id": f.w, "brief": "가이드 각주 한 번 더"}, "Idempotency-Key", uuid.NewString())
+	out := c.must(201, "POST", f.p+"/rooms/"+tm.room+"/lanes", map[string]any{"card": map[string]any{"agent_id": f.w, "goal": "가이드 각주 한 번 더", "criteria": []map[string]any{{"text": "결과를 보고한다", "method": "review"}}, "boundaries": "맡은 것 밖은 건드리지 않는다"}}, "Idempotency-Key", uuid.NewString())
 	task, _ := out["task"].(map[string]any)
 	if str(task, "queued_reason") != quiet.ReasonApprovalPending {
 		t.Fatalf("(delegate) delegated task queued_reason = %q, want approval_pending: %v", str(task, "queued_reason"), task)

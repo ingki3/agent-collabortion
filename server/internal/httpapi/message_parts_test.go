@@ -149,8 +149,9 @@ func TestPartsRoutePerPart(t *testing.T) {
 	for i, want := range map[int]string{1: f.lead, 2: f.w} {
 		m := parts[i]["message"].(map[string]any)
 		a := m["addressees"].([]any)
-		if str(m, "speech") != "request" || len(a) != 1 || str(a[0].(map[string]any), "id") != want {
-			t.Fatalf("part %d = %s → %v, want request → %s only", i, str(m, "speech"), a, want)
+		// v0.19.15 FR-3.8 2: an agent's part to another agent is a question.
+		if str(m, "speech") != "question" || len(a) != 1 || str(a[0].(map[string]any), "id") != want {
+			t.Fatalf("part %d = %s → %v, want question → %s only", i, str(m, "speech"), a, want)
 		}
 	}
 	// people: the Director's part files one mention inbox item for Dir (the
@@ -386,7 +387,7 @@ func TestPartsTurnPrompt(t *testing.T) {
 	if strings.Contains(trig, secretToDir) || strings.Contains(trig, secretToW) {
 		t.Errorf("(no body) the trigger carries another part's body:\n%s", trig)
 	}
-	wantLine := "Other parts of the same message: → Dir (report) · → @Lead (request). Read them whole with the `colab_room_messages` tool's `group: \"" + gid + "\"`."
+	wantLine := "Other parts of the same message: → Dir (report) · → @Lead (question). Read them whole with the `colab_room_messages` tool's `group: \"" + gid + "\"`."
 	if !strings.Contains(trig, wantLine) {
 		t.Errorf("(line) want %q in:\n%s", wantLine, trig)
 	}

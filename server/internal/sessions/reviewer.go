@@ -1,6 +1,8 @@
 package sessions
 
 import (
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -247,6 +249,13 @@ func progressOf(ctx context.Context, q db.DBTX, sessionID, workID uuid.UUID, tre
 		if n > 0 {
 			p.PausedAgentTriggers = &n
 		}
+		// openapi v0.3.10 CompletionProgress.cards (PRD FR-3.8 4) — null
+		// (left out) when the mission has no card.
+		sum, err := cards.Summary(ctx, q, workID)
+		if err != nil {
+			return gen.CompletionProgress{}, err
+		}
+		p.Cards = sum.ToGen()
 	}
 	return p, nil
 }

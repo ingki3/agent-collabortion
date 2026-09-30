@@ -78,7 +78,7 @@ func TestS76DelegateJoinCycleStopsAtPairRoundtrips(t *testing.T) {
 	var tripped error
 	for i := 0; i < maxCycles; i++ {
 		f.fake.Advance(time.Second)
-		res, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "체인 확인"})
+		res, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "체인 확인"))
 		if err != nil {
 			tripped = err
 			break
@@ -87,7 +87,7 @@ func TestS76DelegateJoinCycleStopsAtPairRoundtrips(t *testing.T) {
 		// R ends → the join fires → Lead is woken. That wake-up is the
 		// second hop of the roundtrip.
 		f.fake.Advance(time.Second)
-		if _, err := f.srv.Router.SetAgentStatus(ctx, mustUUID(t, res.Task.Id.String()), 1, "done", ""); err != nil {
+		if _, err := f.setStatus(ctx, mustUUID(t, res.Task.Id.String()), 1, "done", ""); err != nil {
 			t.Fatal(err)
 		}
 		st, _, _ := f.sessionPause(t)
@@ -203,7 +203,7 @@ func TestS76JoinWakeIsGated(t *testing.T) {
 	}
 	leadTask := mustUUID(t, out.Triggers[0].TaskId.String())
 	f.fake.Advance(time.Second)
-	res, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "다시"})
+	res, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "다시"))
 	if err != nil {
 		t.Fatalf("second hop must pass (roundtrip 1): %v", err)
 	}
@@ -211,7 +211,7 @@ func TestS76JoinWakeIsGated(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.fake.Advance(time.Second)
-	if _, err := f.srv.Router.SetAgentStatus(ctx, mustUUID(t, res.Task.Id.String()), 1, "done", ""); err != nil {
+	if _, err := f.setStatus(ctx, mustUUID(t, res.Task.Id.String()), 1, "done", ""); err != nil {
 		t.Fatalf("the child's done must not fail — the limiter withholds the wake, not the status: %v", err)
 	}
 	if !joinFired(t, f, leadTask) {

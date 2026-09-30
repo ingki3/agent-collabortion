@@ -23,6 +23,7 @@ import { registerMedia, resolveAttachments, seedArtifactFromB64 } from "./media"
 import { registerConversationSeed } from "./conversation-seed";
 import { registerPartsSeed } from "./parts-seed";
 import { registerWorkingSeed } from "./working-seed";
+import { registerCards } from "./cards";
 import { applySpeech, type SpeechPremises } from "./speech";
 import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, SEED, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
@@ -81,6 +82,12 @@ registerConversationSeed({ on, Problem, sessionOf, addMessage, createTask, setLa
 registerPartsSeed({ on, Problem, sessionOf, addMessage, createTask, pushEvent, setLaneStatus, parseMentions, resolveAttachments, seedArtifact: seedArtifactFromB64 });
 // 「작업 중」 말풍선 시드(`seed-working` · `working-step`, SCREEN §4.6 v0.19.10) — 두 에이전트 동시 작업 + 진행 메모 흐름. 본문은 ./working-seed.ts.
 registerWorkingSeed({ on, Problem, sessionOf, requireMember, addMessage, createTask, pushEvent, setLaneStatus, toTask });
+// 작업 카드(v0.3.10, PRD FR-3.8) — 카드 op 다섯 · card.* · 시드(`seed-cards`). 본문은 ./cards.ts(등록 한 줄만).
+registerCards({
+  on, Problem, sessionOf, requireUser, addMessage, createTask, setLaneStatus, parseMentions, toTask,
+  workPeople: (s, id) => { const w = workView(s, id); return w ? { director: w.director_user_id, deputy: w.deputy_user_id ?? null, roomId: w.room_id } : null; },
+  openWorkOf: (s, roomId) => roomWorks(s, { id: roomId }).find((w) => OPEN_WORK.has(w.status))?.id ?? null,
+});
 
 export async function dispatch(req: Req): Promise<Res> {
   for (const r of routes) {

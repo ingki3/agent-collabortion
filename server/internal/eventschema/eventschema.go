@@ -22,7 +22,7 @@ import (
 // match the contract file so drift is caught in CI.
 var (
 	Classes  = []string{"message", "tool", "usage", "plan", "runtime", "status"}
-	Verbs    = []string{"say", "think", "edit_file", "run_shell", "read", "search", "use_tool", "permission", "report", "update", "start", "resume", "error", "cancel", "turn_end", "post_message", "delegate", "set_status", "submit_artifact", "record_decision", "hitl", "review"}
+	Verbs    = []string{"say", "think", "edit_file", "run_shell", "read", "search", "use_tool", "permission", "report", "update", "start", "resume", "error", "cancel", "turn_end", "post_message", "delegate", "set_status", "submit_artifact", "record_decision", "hitl", "review", "card"}
 	Outcomes = []string{"started", "ok", "failed", "allowed", "rejected", "cancelled", "resumed", "cold_start", "report", "update", "info"}
 
 	messageKinds = []string{"text", "thought"}

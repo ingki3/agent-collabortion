@@ -1,14 +1,15 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
@@ -182,7 +183,8 @@ func (s *Server) publishLane(r *http.Request, wsID, sessionID uuid.UUID, lane *g
 	}
 }
 
-// DelegateLane is `colab lane delegate` (FR-6.2, FR-6.5). Agents only: a human
+// DelegateLane is `colab card delegate` (PRD FR-3.8 1, FR-6.2, FR-6.5 —
+// openapi v0.3.10: the body is the delegation card). Agents only: a human
 // parallelises with postMessage's new_lane toggle instead.
 func (s *Server) DelegateLane(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.DelegateLaneParams) {
 	pr := principalOf(r)
@@ -194,7 +196,7 @@ func (s *Server) DelegateLane(w http.ResponseWriter, r *http.Request, roomId gen
 		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 방에는 위임할 수 없습니다"))
 		return
 	}
-	if p := s.commandAllowed(r, gen.ColabCommandLaneDelegate); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandCardDelegate); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -203,13 +205,19 @@ func (s *Server) DelegateLane(w http.ResponseWriter, r *http.Request, roomId gen
 		writeProblem(w, p)
 		return
 	}
+	// The old body (agent_id · brief) has no card: 422 card_required with
+	// the contract's sentence, before the typed decode would call it
+	// malformed.
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(body, &probe); err == nil {
+		if c, ok := probe["card"]; !ok || string(c) == "null" {
+			writeProblem(w, apperr.New(http.StatusUnprocessableEntity, "card_required", cards.CardRequiredSentence))
+			return
+		}
+	}
 	var in gen.DelegateLaneJSONBody
 	if p := decodeJSON(w, r, &in); p != nil {
 		writeProblem(w, p)
-		return
-	}
-	if strings.TrimSpace(in.Brief) == "" {
-		writeProblem(w, apperr.Validation(apperr.Field("brief", "required", "지시문을 적어 주세요 — 위임받는 에이전트가 그 글로 시작합니다")))
 		return
 	}
 	dep := []uuid.UUID{}
@@ -225,12 +233,12 @@ func (s *Server) DelegateLane(w http.ResponseWriter, r *http.Request, roomId gen
 	}
 	call := func() (int, any, *Problem) {
 		res, err := s.Router.Delegate(r.Context(), pr.Task.TaskID, router.DelegateInput{
-			AgentID: uuid.UUID(in.AgentId), Brief: in.Brief, DependsOn: dep, Profile: profile,
+			Card: draftOf(in.Card), DependsOn: dep, Profile: profile,
 		})
 		if err != nil {
 			return 0, nil, apperr.As(err)
 		}
-		return http.StatusCreated, map[string]any{"lane": res.Lane, "message": res.Message, "task": res.Task}, nil
+		return http.StatusCreated, map[string]any{"lane": res.Lane, "message": res.Message, "task": res.Task, "card": res.Card}, nil
 	}
 	if params.IdempotencyKey == nil {
 		st, out, p := call()

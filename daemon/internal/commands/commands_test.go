@@ -72,6 +72,8 @@ func TestToolNamesMatchContractSection3(t *testing.T) {
 		t.Fatal("colab-cli.md 에 §3 이 없다")
 	}
 	sec := text[i:]
+	// v0.9.10: 「(옛 `colab_lane_delegate`)」 names the tool a card tool replaced.
+	sec = regexp.MustCompile("옛 `colab_[a-z_]+`").ReplaceAllString(sec, "")
 	if j := strings.Index(sec, "\n## 4."); j > 0 {
 		sec = sec[:j]
 	}
@@ -141,13 +143,13 @@ func TestKnownIsAllNotLabels(t *testing.T) {
 	if Known("brand_new") {
 		t.Error("Known(brand_new) = true")
 	}
-	saved := labels["lane_delegate"]
-	delete(labels, "lane_delegate")
-	defer func() { labels["lane_delegate"] = saved }()
-	if !Known("lane_delegate") {
+	saved := labels["card_delegate"]
+	delete(labels, "card_delegate")
+	defer func() { labels["card_delegate"] = saved }()
+	if !Known("card_delegate") {
 		t.Error("라벨을 지웠다고 명령이 미지의 것이 됐다 — Known 이 labels 로 판정한다(NN3)")
 	}
-	if got := Label("lane_delegate"); got != "lane delegate" {
+	if got := Label("card_delegate"); got != "card delegate" {
 		t.Errorf("Label without a label = %q, want the CLI spelling", got)
 	}
 	labels["ghost_cmd"] = "유령"
@@ -159,7 +161,7 @@ func TestKnownIsAllNotLabels(t *testing.T) {
 
 func TestCLINamesAndParticles(t *testing.T) {
 	for cmd, want := range map[string]string{
-		"lane_delegate": "lane delegate", "hitl_approve_request": "hitl approve-request",
+		"card_delegate": "card delegate", "hitl_approve_request": "hitl approve-request",
 		"hitl_request_info": "hitl request-info", "room_get": "room get", "brand_new": "brand new",
 	} {
 		if got := CLIName(cmd); got != want {
@@ -185,7 +187,7 @@ func TestEmptyMeansEverything(t *testing.T) {
 		t.Fatalf("EnvEntry %q", e)
 	}
 	d := Denied(allowed)
-	if len(d) != len(all)-2 || d[0] != "room_messages" || d[len(d)-1] != "work_propose" {
+	if len(d) != len(all)-2 || d[0] != "room_messages" || d[len(d)-1] != "card_list" {
 		t.Fatalf("Denied %v", d)
 	}
 	if len(Denied(All())) != 0 {

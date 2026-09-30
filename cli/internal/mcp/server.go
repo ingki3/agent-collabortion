@@ -2,7 +2,9 @@
 // exposing the colab commands as tools with the same names as the command
 // paths joined by underscores (contracts/colab-cli.md §3):
 // colab_room_get · colab_room_messages · colab_message_post ·
-// colab_status_set · colab_lane_delegate · colab_decision_record ·
+// colab_status_set · colab_card_delegate · colab_card_report ·
+// colab_card_accept · colab_card_revise · colab_card_get · colab_card_list
+// (v0.9.10) · colab_decision_record ·
 // colab_artifact_submit · colab_artifact_get · colab_review_approve ·
 // colab_review_reject · colab_hitl_ask · colab_hitl_approve_request ·
 // colab_hitl_request_info · (v0.8 §2.4a) colab_room_list · colab_room_read ·
@@ -21,6 +23,8 @@
 // No SDK dependency: the daemon injects this server as the only MCP server
 // (harness.md §3, strictMcpConfig) and the surface is a handful of tools, so
 // a hand-rolled JSON-RPC loop keeps the CLI a single static binary.
+//
+//go:generate go run ./cardschema/gen -spec ../../../contracts/openapi.yaml -out card_schemas.gen.go
 package mcp
 
 import (
@@ -74,9 +78,34 @@ var Tools = []Tool{
 		InputSchema: json.RawMessage(`{"type":"object","required":["status"],"properties":{"status":{"type":"string","enum":["working","blocked","done"]},"note":{"type":"string","description":"working: what you are doing now — one conversational sentence for the people in the room's language (what and why), shown in the room as 「지금 …」 until your turn ends; 120 chars, longer is cut. Call it right after the turn starts and when the problem changes, not after every tool call. blocked: REQUIRED — the question the delegator answers"},"task":{"type":"string","description":"task id (default: this task)"}},"additionalProperties":false}`),
 	},
 	{
-		Name:        "colab_lane_delegate",
-		Description: "Delegate work to another agent: always creates a NEW lane whose delegated_from_task_id is this task (the rejoin group). The target must ALREADY be a room participant — you cannot create one. A non-participant fails with code `not_participant`; ask the Director to add them with colab_hitl_ask. Same as `colab lane delegate --agent --brief`.",
-		InputSchema: json.RawMessage(`{"type":"object","required":["agent","brief"],"properties":{"agent":{"type":"string","description":"target participant name, e.g. \"Reviewer\" or \"@Reviewer\""},"brief":{"type":"string","minLength":1,"description":"the delegation brief; goes into the delegate's turn prompt verbatim"},"depends_on":{"type":"array","items":{"type":"string"},"description":"lane ids this lane waits for (v1 stores them; DAG execution is v1.1)"},"profile":{"type":"string","description":"profile name (default: the participant's registered profile)"},"session":{"type":"string"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+		Name:        "colab_card_delegate",
+		Description: "Delegate work with a CARD — the only way to hand work to another agent (mentioning an agent only asks it a question). The card: `agent` (a room participant, not yourself), `goal`, `criteria` (1..7, each with the `method` that verifies it: test · artifact · run · review · inspect), `boundaries` (what the assignee must not do), `refs` (artifact · decision · message ids), `output_format`, `budget_usd`. Always a NEW lane in this turn's rejoin group; the server numbers the card (C-n) and posts the delegation card. A card that breaks a rule fails with code `card_invalid` and `errors[]` naming every field — fix them all and call again. Same as `colab card delegate --file <card.json>`.",
+		InputSchema: json.RawMessage(schemaCardDelegate),
+	},
+	{
+		Name:        "colab_card_report",
+		Description: "Submit the RESULT CARD of the card you were handed (only in a card task): `summary`, a `verdict` for EVERY criterion once (met · partial · unmet, with `evidence` — artifact · message ids or a commit hash — and a `note` for what is missing), `confirmed` (what you checked yourself), `assumed` (what you did not check; [] if none), `deviations`, `open_issues`. A met without evidence is saved as partial and the result's `notice` says so. Then set status done. Same as `colab card report --file <result.json>`.",
+		InputSchema: json.RawMessage(schemaCardReport),
+	},
+	{
+		Name:        "colab_card_accept",
+		Description: "Accept a card's result — you delegated it and its result card is in (<result_cards>). The card closes. Same as `colab card accept <C-n|id>`.",
+		InputSchema: json.RawMessage(schemaCardAccept),
+	},
+	{
+		Name:        "colab_card_revise",
+		Description: "Send a card back for another round — `reason` says what is missing; `patch` optionally changes the card (given fields only, not the assignee). The card's version goes up and the SAME lane re-enters with it. Same as `colab card revise <C-n|id> --reason <text> [--file <patch.json>]`.",
+		InputSchema: json.RawMessage(schemaCardRevise),
+	},
+	{
+		Name:        "colab_card_get",
+		Description: "Read one card (C-n on this mission's board, or its id) with its past versions, result and judgement. Same as `colab card get <C-n|id>`.",
+		InputSchema: json.RawMessage(schemaCardGet),
+	},
+	{
+		Name:        "colab_card_list",
+		Description: "This mission's card board: every card with its assignee, status and how many criteria are met. Same as `colab card list`.",
+		InputSchema: json.RawMessage(schemaCardList),
 	},
 	{
 		Name:        "colab_decision_record",
@@ -322,7 +351,7 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		if cc := s.c.CachedContext(); cc != nil {
 			role = cc.OwnRole()
 		}
-		return s.errorResult(client.NotAllowed(role, cmd, s.allow)), nil
+		return s.errorResult(s.c.Refusal(role, cmd, s.allow)), nil
 	}
 	run, ok := toolRuns[name]
 	if !ok {
@@ -372,10 +401,6 @@ type (
 		colab.MessagePostArgs
 		MentionRaw json.RawMessage `json:"mention,omitempty"`
 	}
-	laneDelegateWire = struct {
-		colab.LaneDelegateArgs
-		DependsOnRaw json.RawMessage `json:"depends_on,omitempty"`
-	}
 	hitlAskWire = struct {
 		colab.HitlAskArgs
 		ChoicesRaw json.RawMessage `json:"choices,omitempty"`
@@ -396,10 +421,30 @@ var toolRuns = map[string]toolRun{
 		return a.MessagePostArgs
 	}, colab.Post),
 	"colab_status_set": run(as[colab.StatusSetArgs], colab.StatusSet),
-	"colab_lane_delegate": run(func(a laneDelegateWire) colab.LaneDelegateArgs {
-		a.DependsOn = parseMention(a.DependsOnRaw) // same array-or-CSV shape
-		return a.LaneDelegateArgs
-	}, colab.LaneDelegate),
+	// v0.9.10 card tools: the card (or result) is the arguments object
+	// itself, minus the command's own fields.
+	"colab_card_delegate": run(func(m map[string]any) colab.CardDelegateArgs {
+		a := colab.CardDelegateArgs{DependsOn: parseMention(rawOf(m["depends_on"]))}
+		a.Profile, _ = m["profile"].(string)
+		a.Session, _ = m["session"].(string)
+		a.IdempotencyKey, _ = m["idempotency_key"].(string)
+		for _, k := range []string{"depends_on", "profile", "session", "idempotency_key"} {
+			delete(m, k)
+		}
+		a.Card = m
+		return a
+	}, colab.CardDelegate),
+	"colab_card_report": run(func(m map[string]any) colab.CardReportArgs {
+		a := colab.CardReportArgs{}
+		a.IdempotencyKey, _ = m["idempotency_key"].(string)
+		delete(m, "idempotency_key")
+		a.Result = m
+		return a
+	}, colab.CardReport),
+	"colab_card_accept":     run(as[colab.CardJudgeArgs], colab.CardAccept),
+	"colab_card_revise":     run(as[colab.CardJudgeArgs], colab.CardRevise),
+	"colab_card_get":        run(as[colab.CardGetArgs], colab.CardGet),
+	"colab_card_list":       run(as[colab.CardListArgs], colab.CardList),
 	"colab_decision_record": run(as[colab.DecisionRecordArgs], colab.DecisionRecord),
 	"colab_artifact_submit": run(as[colab.ArtifactSubmitArgs], colab.ArtifactSubmit),
 	"colab_artifact_get":    run(as[colab.ArtifactGetArgs], colab.ArtifactGet),
@@ -443,8 +488,17 @@ func (s *Server) errorResult(err error) map[string]any {
 	}
 }
 
-// parseMention accepts ["@A","@B"], "@A,@B" or null. colab_lane_delegate's
+// parseMention accepts ["@A","@B"], "@A,@B" or null. colab_card_delegate's
 // depends_on takes the same shape.
+// rawOf is a decoded JSON value back as raw JSON (nil stays nil).
+func rawOf(v any) json.RawMessage {
+	if v == nil {
+		return nil
+	}
+	b, _ := json.Marshal(v)
+	return b
+}
+
 func parseMention(raw json.RawMessage) []string {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil

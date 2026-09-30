@@ -10,8 +10,10 @@
  * 편집 동작(T-R2-W4b): 「설정 편집」(S21 폼 편집 모드) · 「Director 교체」 · 막힌 조건의 「조건 고치기」 — 권한은 `lib/work-edit.ts` 한 곳.
  * Director 교체만 층이 다르다(그 미션의 director **또는 ws owner·admin**) — 사유도 따로 선다.
  *
- * 탭 틀(T-RF2): 칸 전체가 `PanelTabs` 안에 있고 지금 내용은 「개요」 탭 하나다(`WorkOverview`). 탭이 하나면 탭 줄을 그리지 않는다 —
- * 화면·DOM 이 틀 도입 전과 같다. 탭을 더할 때는 아래 `tabs` 배열에 한 줄(id · 표의 이름 · 렌더러)을 더한다.
+ * 탭 틀(T-RF2): 칸 전체가 `PanelTabs` 안에 있다. 탭이 하나면 탭 줄을 그리지 않는다 — 화면·DOM 이 틀 도입 전과 같다.
+ * v0.19.15(T-CARD-W, SCREEN §4.6 (가)): 그 미션에 카드가 하나라도 있으면 「개요 · 분담표」 두 탭(머리 「카드 N · 판정 대기 N」은 탭 줄 오른쪽).
+ * 카드가 0 이면 탭 줄 없이 개요만 — 카드 없는 미션의 화면은 지금과 같다. 고른 탭은 방 화면이 쥔다(`tab`·`onTab`, #392 리뷰 NN3 —
+ * 미션을 바꿔도 「분담표」를 보던 사람은 분담표를 본다).
  */
 import { useState } from "react";
 import "./session-aside.css";
@@ -22,13 +24,14 @@ import { Slot } from "./Slot";
 import { BudgetCapLine } from "./BudgetCapLine";
 import { DisabledHint } from "./PageHead";
 import { PanelTabs, type PanelTab } from "./PanelTabs";
+import { CardBoard, boardHead } from "./CardBoard";
 import { metByName } from "./SessionAside";
 import { progressSummary, topOp } from "@/lib/completion";
 import { humanDuration } from "@/lib/time";
 import { panelActionsEnabled, type PanelMode } from "@/lib/room-view";
 import { BUDGET_CAP, ROOM_HEAD, WORK_CHIPS, WORK_PANEL } from "@/lib/wording";
 import { WORK_EDIT, changeDirectorBlocked } from "@/lib/work-edit";
-import type { Work } from "@/lib/api/types";
+import type { CardBoard as Board, CardBoardItem, Work } from "@/lib/api/types";
 
 export interface WorkPanelProps {
   mode: PanelMode;
@@ -60,15 +63,33 @@ export interface WorkPanelProps {
   roomBudget?: number | null;
   /** 비용 줄 [상한 걸기] — updateWork limits.budget_usd. Director 에게만 켜진다. */
   onSetBudget?: (usd: number) => Promise<void>;
+  /** v0.19.15 — 실린 미션의 분담표(`listRoomCards?work_id=`). 없거나 카드 0 이면 탭 줄 없음. */
+  board?: Board | null;
+  /** 고른 탭(방 화면 상태 — 미션을 바꿔도 유지). */
+  tab?: string;
+  onTab?: (id: string) => void;
+  /** 분담표 행을 누르면 — 타임라인 그 카드 말풍선으로. */
+  onOpenCard?: (item: CardBoardItem) => void;
 }
 
 const CLOSED = new Set(["completed", "cancelled"]);
 
 export function WorkPanel(props: WorkPanelProps) {
+  const board = props.board && props.work && (props.board.work_id ?? null) === props.work.id && props.board.total > 0 ? props.board : null;
   const tabs: PanelTab[] = [
     { id: "overview", label: WORK_PANEL.tab_overview, render: () => <WorkOverview {...props} /> },
+    ...(board ? [{ id: "board", label: WORK_PANEL.tab_board, render: () => <CardBoard board={board} onOpen={(it) => props.onOpenCard?.(it)} /> }] : []),
   ];
-  return <PanelTabs label={WORK_PANEL.title} idPrefix="work-panel" tabs={tabs} />;
+  return (
+    <PanelTabs
+      label={WORK_PANEL.title}
+      idPrefix="work-panel"
+      tabs={tabs}
+      value={props.tab}
+      onChange={props.onTab}
+      aside={board ? <span data-testid="card-board-head">{boardHead(board)}</span> : undefined}
+    />
+  );
 }
 
 /** 「개요」 탭 — 미션 칸의 본래 내용(목표 · 종료 조건 진행률 · 비용 · 동작). */

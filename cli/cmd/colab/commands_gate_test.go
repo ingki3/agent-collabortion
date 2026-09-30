@@ -66,7 +66,9 @@ func section25(t *testing.T) map[string]map[string]bool {
 			t.Fatalf("§2.5 row has %d cells, header %d: %q", len(row), len(header), l)
 		}
 		var cmds []string
-		for _, m := range cmdRe.FindAllStringSubmatch(row[0], -1) {
+		// v0.9.10: 「(옛 `lane_delegate`)」 names what a row replaced.
+		first := regexp.MustCompile("옛 `[a-z_]+`").ReplaceAllString(row[0], "")
+		for _, m := range cmdRe.FindAllStringSubmatch(first, -1) {
 			cmds = append(cmds, m[1])
 		}
 		if len(cmds) == 0 {
@@ -107,6 +109,14 @@ func invocations(t *testing.T) map[client.Command]invocation {
 	if err := os.WriteFile(doc, []byte("# notes\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	card := filepath.Join(t.TempDir(), "card.json")
+	if err := os.WriteFile(card, []byte(`{"agent":"`+clienttest.ReviewerName+`","goal":"g","criteria":[{"text":"t","method":"review"}],"boundaries":"b"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := filepath.Join(t.TempDir(), "result.json")
+	if err := os.WriteFile(result, []byte(`{"summary":"s","verdicts":[{"criterion":1,"verdict":"unmet"}],"confirmed":["c"],"assumed":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	sess := "/rooms/" + clienttest.RoomID
 	return map[client.Command]invocation{
 		client.CmdRoomGet:            {[]string{"room", "get"}, "GET", sess},
@@ -115,7 +125,7 @@ func invocations(t *testing.T) map[client.Command]invocation {
 		client.CmdMessagePost:        {[]string{"message", "post", "--body", "hi"}, "POST", sess + "/messages"},
 		client.CmdStatusSet:          {[]string{"status", "set", "working"}, "POST", "/tasks/" + clienttest.TaskID + "/status"},
 		client.CmdDecisionRecord:     {[]string{"decision", "record", "--summary", "s"}, "POST", sess + "/decisions"},
-		client.CmdLaneDelegate:       {[]string{"lane", "delegate", "--agent", clienttest.ReviewerName, "--brief", "b"}, "POST", sess + "/lanes"},
+		client.CmdCardDelegate:       {[]string{"card", "delegate", "--file", card}, "POST", sess + "/lanes"},
 		client.CmdArtifactSubmit:     {[]string{"artifact", "submit", "--type", "doc", "--file", doc}, "POST", sess + "/artifacts"},
 		client.CmdReviewApprove:      {[]string{"review", "approve", "--artifact", clienttest.ArtifactID}, "POST", "/artifacts/" + clienttest.ArtifactID + "/review"},
 		client.CmdReviewReject:       {[]string{"review", "reject", "--artifact", clienttest.ArtifactID, "--reason", "r"}, "POST", "/artifacts/" + clienttest.ArtifactID + "/review"},
@@ -125,6 +135,11 @@ func invocations(t *testing.T) map[client.Command]invocation {
 		client.CmdRoomList:           {[]string{"room", "list"}, "GET", "/cli/rooms"},
 		client.CmdRoomRead:           {[]string{"room", "read", "--room", clienttest.OtherRoomID}, "GET", "/cli/rooms/" + clienttest.OtherRoomID + "/read"},
 		client.CmdWorkPropose:        {[]string{"work", "propose", "--goal", "g", "--why", "w"}, "POST", "/rooms/" + clienttest.SessionID + "/work-proposals"},
+		client.CmdCardReport:         {[]string{"card", "report", "--file", result}, "POST", "/cards/" + clienttest.CardID + "/result"},
+		client.CmdCardAccept:         {[]string{"card", "accept", clienttest.CardID}, "POST", "/cards/" + clienttest.CardID + "/accept"},
+		client.CmdCardRevise:         {[]string{"card", "revise", clienttest.CardID, "--reason", "r"}, "POST", "/cards/" + clienttest.CardID + "/revise"},
+		client.CmdCardGet:            {[]string{"card", "get", clienttest.CardID}, "GET", "/cards/" + clienttest.CardID},
+		client.CmdCardList:           {[]string{"card", "list"}, "GET", sess + "/cards"},
 	}
 }
 
@@ -217,7 +232,7 @@ func paths(s *clienttest.Server) []string {
 	return out
 }
 
-// The §2.5 table names exactly the 16 ColabCommand values — no more (a name
+// The §2.5 table names exactly the 21 ColabCommand values — no more (a name
 // the enum lacks) and no fewer (a command the table forgot).
 func TestSection25NamesEveryCommand(t *testing.T) {
 	table := section25(t)
@@ -251,10 +266,10 @@ func TestGateEnvWinsOverContext(t *testing.T) {
 	inv := invocations(t)
 	// env denies what the server would allow → exit 3, zero requests.
 	s := clienttest.New(t)
-	s.AllowedCommands = []string{"lane_delegate"}
+	s.AllowedCommands = []string{"card_delegate"}
 	env := s.Env(t.TempDir())
 	env[client.EnvAllowedCommands] = "room_get, message_post"
-	code, v, _ := exec(t, env, inv[client.CmdLaneDelegate].args...)
+	code, v, _ := exec(t, env, inv[client.CmdCardDelegate].args...)
 	if code != client.ExitRefused || errCode(v) != client.ErrCodeCommandNotAllowed {
 		t.Fatalf("exit %d code %q, want 3 command_not_allowed", code, errCode(v))
 	}
@@ -262,7 +277,7 @@ func TestGateEnvWinsOverContext(t *testing.T) {
 		t.Fatalf("env-refused command sent %v; want none", paths(s))
 	}
 	e := v["error"].(map[string]any)
-	if e["role"] != "" || e["detail"] != "이 역할은 lane delegate 를 쓸 수 없습니다" {
+	if e["role"] != "" || e["detail"] != "이 역할은 card delegate 를 쓸 수 없습니다" {
 		t.Fatalf("without a context the role is unknown and the sentence drops it; got %v", e)
 	}
 	if got, _ := e["allowed"].([]any); len(got) != 2 || got[0] != "room_get" || got[1] != "message_post" {
@@ -272,8 +287,8 @@ func TestGateEnvWinsOverContext(t *testing.T) {
 	s2 := clienttest.New(t)
 	s2.AllowedCommands = []string{"room_get"}
 	env2 := s2.Env(t.TempDir())
-	env2[client.EnvAllowedCommands] = "lane_delegate,room_get"
-	code, v, stderr := exec(t, env2, inv[client.CmdLaneDelegate].args...)
+	env2[client.EnvAllowedCommands] = "card_delegate,room_get"
+	code, v, stderr := exec(t, env2, inv[client.CmdCardDelegate].args...)
 	if code != 0 {
 		t.Fatalf("exit %d: %v %s", code, v, stderr)
 	}
@@ -314,8 +329,8 @@ func TestGateOldServerAndEmptyListAllowEverything(t *testing.T) {
 func TestGateReusesTheOneContextRead(t *testing.T) {
 	inv := invocations(t)
 	s := clienttest.New(t)
-	s.AllowedCommands = []string{"lane_delegate", "room_get"}
-	if code, v, stderr := exec(t, s.Env(t.TempDir()), inv[client.CmdLaneDelegate].args...); code != 0 {
+	s.AllowedCommands = []string{"card_delegate", "room_get"}
+	if code, v, stderr := exec(t, s.Env(t.TempDir()), inv[client.CmdCardDelegate].args...); code != 0 {
 		t.Fatalf("exit %d: %v %s", code, v, stderr)
 	}
 	n := 0
@@ -337,8 +352,8 @@ func TestServer403CommandNotAllowedIsExit3(t *testing.T) {
 	s := clienttest.New(t)
 	s.Fail, s.FailCode = 403, client.ErrCodeCommandNotAllowed
 	env := s.Env(t.TempDir())
-	env[client.EnvAllowedCommands] = "lane_delegate"
-	code, v, _ := exec(t, env, inv[client.CmdLaneDelegate].args...)
+	env[client.EnvAllowedCommands] = "card_delegate"
+	code, v, _ := exec(t, env, inv[client.CmdCardDelegate].args...)
 	if code != client.ExitRefused || errCode(v) != client.ErrCodeCommandNotAllowed {
 		t.Fatalf("exit %d code %q, want 3 command_not_allowed from the server", code, errCode(v))
 	}
@@ -355,7 +370,7 @@ func TestMCPServeAllowViaCLI(t *testing.T) {
 	s := clienttest.New(t)
 	env := s.Env(t.TempDir())
 	in := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"colab_lane_delegate","arguments":{"agent":"Lead","brief":"b"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"colab_card_delegate","arguments":{"agent":"Lead","goal":"g","criteria":[{"text":"t","method":"review"}],"boundaries":"b"}}}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"colab_room_get","arguments":{}}}
 `
 	var out, errb bytes.Buffer

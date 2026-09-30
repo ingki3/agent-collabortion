@@ -142,9 +142,18 @@ func TestJoinRecovery(t *testing.T) {
 			now := f.fake.Now()
 			var wg sync.WaitGroup
 			errs := make(chan error, 3)
+			var mu sync.Mutex
+			swept := 0
 			for k := 0; k < 2; k++ {
 				wg.Add(1)
-				go func() { defer wg.Done(); _, err := f.srv.Router.RecoverJoins(t.Context(), now); errs <- err }()
+				go func() {
+					defer wg.Done()
+					n, err := f.srv.Router.RecoverJoins(t.Context(), now)
+					mu.Lock()
+					swept += n
+					mu.Unlock()
+					errs <- err
+				}()
 			}
 			wg.Add(1)
 			go func() {
@@ -162,8 +171,14 @@ func TestJoinRecovery(t *testing.T) {
 				t.Fatalf("run %d: fired=%v bundles=%d leadQueued=%d, want true/1/1",
 					i, joinFired(t, f, leadTask), f.bundleCount(t), f.leadQueued(t))
 			}
-			if n := f.laneEndRows(t, tasks.LaneEndJoinRecovered); n > 1 {
-				t.Fatalf("run %d: join_recovered rows = %d, want ≤ 1", i, n)
+			// #396 re-review NN1·NN4: the sweeps' returned counts are exact —
+			// each is maybeFireJoin's own `fired` — so their sum is the number
+			// of join_recovered rows (1 when a sweep won, 0 when the hook did).
+			// 회귀 주입: recoverJoin 이 fired 대신 「join_fired_at 이 찼나」로
+			// 판단하면 합이 2 가 되어 FAIL.
+			rows := f.laneEndRows(t, tasks.LaneEndJoinRecovered)
+			if rows > 1 || swept != rows {
+				t.Fatalf("run %d: sweeps returned %d, join_recovered rows = %d — want equal and ≤ 1", i, swept, rows)
 			}
 		}
 	})
@@ -189,13 +204,37 @@ func TestJoinRecovery(t *testing.T) {
 	t.Run("blocked", func(t *testing.T) {
 		f := newP2Fixture(t)
 		leadTask, rTask, _ := f.delegatedChild(t)
-		if _, err := f.srv.Router.SetAgentStatus(t.Context(), rTask, 1, "blocked", "범위?"); err != nil {
+		if _, err := f.setStatus(t.Context(), rTask, 1, "blocked", "범위?"); err != nil {
 			t.Fatal(err)
 		}
 		f.finishCompleted(t, rTask)
 		f.sweep(t, 2*time.Minute)
 		if joinFired(t, f, leadTask) || f.bundleCount(t) != 0 {
 			t.Fatal("the sweep fired a join for a blocked child")
+		}
+	})
+
+	// (closed-mission) #396 re-review NN5: a group of a mission already
+	// completed or cancelled is not woken — the mission is over.
+	// 회귀 주입: RecoverJoins 쿼리의 닫힌 미션 제외 줄을 지우면 FAIL.
+	t.Run("closed-mission", func(t *testing.T) {
+		for _, st := range []string{"completed", "cancelled"} {
+			f := newP2Fixture(t)
+			leadTask, rTask, _ := f.delegatedChild(t)
+			restore := f.lostHook(t)
+			f.finishCompleted(t, rTask)
+			restore()
+			res, err := f.pool.Exec(t.Context(), `UPDATE work SET status = $2 WHERE id = (SELECT work_id FROM task WHERE id = $1)`, leadTask, st)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.RowsAffected() != 1 {
+				t.Skip("fixture has no mission")
+			}
+			f.sweep(t, time.Minute)
+			if joinFired(t, f, leadTask) || f.bundleCount(t) != 0 {
+				t.Fatalf("%s mission: the sweep fired a join", st)
+			}
 		}
 	})
 

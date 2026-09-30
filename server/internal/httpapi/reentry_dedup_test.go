@@ -41,7 +41,7 @@ func TestReentryReportDedup(t *testing.T) {
 	ends := map[string]func(f *p2Fixture, t *testing.T, rTask uuid.UUID){
 		"turn-end": func(f *p2Fixture, t *testing.T, rTask uuid.UUID) { f.finishCompleted(t, rTask) },
 		"status-done": func(f *p2Fixture, t *testing.T, rTask uuid.UUID) {
-			if _, err := f.srv.Router.SetAgentStatus(t.Context(), rTask, 1, "done", ""); err != nil {
+			if _, err := f.setStatus(t.Context(), rTask, 1, "done", ""); err != nil {
 				t.Fatal(err)
 			}
 			f.finishCompleted(t, rTask)

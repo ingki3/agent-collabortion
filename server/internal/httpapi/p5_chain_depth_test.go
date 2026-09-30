@@ -106,7 +106,7 @@ func (f *chainFixture) mention(t *testing.T, from uuid.UUID, task uuid.UUID, nam
 func (f *chainFixture) delegate(t *testing.T, task uuid.UUID, to uuid.UUID) uuid.UUID {
 	t.Helper()
 	f.fake.Advance(time.Second)
-	res, err := f.srv.Router.Delegate(t.Context(), task, router.DelegateInput{AgentID: to, Brief: "맡아 줘"})
+	res, err := f.srv.Router.Delegate(t.Context(), task, testCard(to, "맡아 줘"))
 	if err != nil {
 		t.Fatalf("delegate: %v", err)
 	}
@@ -116,7 +116,7 @@ func (f *chainFixture) delegate(t *testing.T, task uuid.UUID, to uuid.UUID) uuid
 func (f *chainFixture) done(t *testing.T, task uuid.UUID) {
 	t.Helper()
 	f.fake.Advance(time.Second)
-	if _, err := f.srv.Router.SetAgentStatus(t.Context(), task, 1, "done", ""); err != nil {
+	if _, err := f.setStatus(t.Context(), task, 1, "done", ""); err != nil {
 		t.Fatalf("done: %v", err)
 	}
 }
@@ -186,9 +186,15 @@ func TestS78F1SequenceStaysUnderChainDepth(t *testing.T) {
 	lead = f.run(t, f.queuedTask(t, f.lead))
 	// 멘션 1: Lead asks the reviewer.
 	review := f.run(t, f.mention(t, f.leadUUID, lead, "QA", f.qaUUID))
-	// 재진입 1: the reviewer's lane ends → "요청하신 작업이 끝났습니다" wakes Lead.
-	f.done(t, review)
-	lead = f.run(t, f.queuedTask(t, f.lead))
+	// 재진입 1 → v0.19.15 FR-3.8 2: the mention asked the reviewer a
+	// QUESTION, so its lane does not end; the reviewer's answer to Lead is the
+	// return (like a report — Lead 판정 Q2) and wakes Lead.
+	_, by := f.postFrom(t, f.qaUUID, review, router.MentionLink("Lead", f.leadUUID)+" 검토 끝, 문제 없음")
+	next, ok := by[f.leadUUID]
+	if !ok {
+		t.Fatalf("the reviewer's answer did not wake Lead: %+v", by)
+	}
+	lead = f.run(t, next)
 	// 위임 1 + 합류 1.
 	r2 := f.delegate(t, lead, f.rUUID)
 	f.done(t, r2)
@@ -292,7 +298,7 @@ func TestS78DelegateJoinCycleStopsAtPairRoundtripsUnderDefaults(t *testing.T) {
 	var tripped error
 	for i := 0; i < maxCycles; i++ {
 		f.fake.Advance(time.Second)
-		res, err := f.srv.Router.Delegate(ctx, lead, router.DelegateInput{AgentID: f.rUUID, Brief: "체인 확인"})
+		res, err := f.srv.Router.Delegate(ctx, lead, testCard(f.rUUID, "체인 확인"))
 		if err != nil {
 			tripped = err
 			break

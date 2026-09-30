@@ -3,3 +3,5 @@
 .ptabs__list { display: flex; flex-wrap: wrap; gap: 6px; }
 .ptabs__tab { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 999px; padding: 3px 10px; font-size: var(--fs-body); cursor: pointer; }
 .ptabs__tab--on { border: 2px solid var(--ink); padding: 2px 9px; font-weight: 600; }
+.ptabs__list { align-items: center; }
+.ptabs__aside { margin-left: auto; font-size: var(--fs-meta); color: var(--ink-2); }

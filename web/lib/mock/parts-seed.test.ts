@@ -33,7 +33,8 @@ describe("seed-parts", () => {
     expect(rows.map((m) => m.group_index)).toEqual([0, 1, 2]);
     expect(new Set(rows.map((m) => m.group_id)).size).toBe(1);
     expect(rows.every((m) => m.group_size === 3)).toBe(true);
-    expect(rows.map((m) => m.speech)).toEqual(["report", "request", "request"]);
+    // v0.3.10(PRD FR-3.8 2) — 카드 없는 에이전트 → 에이전트 부분은 「질문」이다(옛 「요청」).
+    expect(rows.map((m) => m.speech)).toEqual(["report", "question", "question"]);
     expect(rows[0].responds_to_message_id).toBe(r.body.order_id);
     expect(rows[2].addressees!.map((a) => a.name)).toEqual(["Developer"]);
     const s = store();

@@ -10,7 +10,7 @@ var ColabCommandValues = []ColabCommand{
 	ColabCommandMessagePost,
 	ColabCommandStatusSet,
 	ColabCommandDecisionRecord,
-	ColabCommandLaneDelegate,
+	ColabCommandCardDelegate,
 	ColabCommandArtifactSubmit,
 	ColabCommandReviewApprove,
 	ColabCommandReviewReject,
@@ -20,4 +20,9 @@ var ColabCommandValues = []ColabCommand{
 	ColabCommandRoomList,
 	ColabCommandRoomRead,
 	ColabCommandWorkPropose,
+	ColabCommandCardReport,
+	ColabCommandCardAccept,
+	ColabCommandCardRevise,
+	ColabCommandCardGet,
+	ColabCommandCardList,
 }

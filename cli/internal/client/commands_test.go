@@ -3,6 +3,7 @@ package client
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -47,7 +48,7 @@ func TestNotAllowedSentenceIsTheContracts(t *testing.T) {
 	if contract != notAllowedFormat {
 		t.Fatalf("contract sentence %q, CLI %q", contract, notAllowedFormat)
 	}
-	if got := NotAllowedSentence("reviewer", CmdLaneDelegate); got != fmt.Sprintf(contract, "reviewer", "lane delegate") {
+	if got := NotAllowedSentence("reviewer", CmdCardDelegate); got != fmt.Sprintf(contract, "reviewer", "card delegate") {
 		t.Fatalf("sentence = %q", got)
 	}
 	if got, want := NotAllowedSentence("", CmdHitlApproveRequest), fmt.Sprintf(noRole, "hitl approve-request"); got != want {
@@ -55,7 +56,7 @@ func TestNotAllowedSentenceIsTheContracts(t *testing.T) {
 	}
 	// Pinned literally too, so a contract edit that changes the sentence
 	// fails here (and is then a deliberate CLI change), not only above.
-	if got := NotAllowedSentence("reviewer", CmdLaneDelegate); got != "이 역할(reviewer)은 lane delegate 를 쓸 수 없습니다" {
+	if got := NotAllowedSentence("reviewer", CmdCardDelegate); got != "이 역할(reviewer)은 card delegate 를 쓸 수 없습니다" {
 		t.Fatalf("sentence = %q", got)
 	}
 	if got := NotAllowedSentence("", CmdHitlApproveRequest); got != "이 역할은 hitl approve-request 를 쓸 수 없습니다" {
@@ -109,10 +110,12 @@ func TestCLIName(t *testing.T) {
 	want := map[Command]string{
 		CmdRoomGet: "room get", CmdRoomMessages: "room messages", CmdArtifactGet: "artifact get",
 		CmdMessagePost: "message post", CmdStatusSet: "status set", CmdDecisionRecord: "decision record",
-		CmdLaneDelegate: "lane delegate", CmdArtifactSubmit: "artifact submit",
+		CmdCardDelegate: "card delegate", CmdArtifactSubmit: "artifact submit",
 		CmdReviewApprove: "review approve", CmdReviewReject: "review reject",
 		CmdHitlAsk: "hitl ask", CmdHitlApproveRequest: "hitl approve-request", CmdHitlRequestInfo: "hitl request-info",
 		CmdRoomList: "room list", CmdRoomRead: "room read", CmdWorkPropose: "work propose",
+		CmdCardReport: "card report", CmdCardAccept: "card accept", CmdCardRevise: "card revise",
+		CmdCardGet: "card get", CmdCardList: "card list",
 	}
 	for _, c := range AllCommands {
 		if c.CLIName() != want[c] {
@@ -154,4 +157,56 @@ func TestOwnRole(t *testing.T) {
 	if (&CliContext{AgentID: "z"}).OwnRole() != "" {
 		t.Fatal("absent from the roster must be empty, not a guess")
 	}
+}
+
+// The question refusal (colab-cli v0.9.10 §2.5) is the contract's sentence
+// and the server's (server/internal/cards QuestionRefusal) byte for byte.
+func TestQuestionRefusalIsTheContractsAndServers(t *testing.T) {
+	raw, err := os.ReadFile("../../../contracts/colab-cli.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile("질문 task[^\\n]*?거부 문장[^「]*「([^」]*<명령>[^」]*)」").FindStringSubmatch(string(raw))
+	if m == nil {
+		t.Fatal("colab-cli.md §2.5: the question refusal sentence is not where this test expects it")
+	}
+	if want := strings.Replace(m[1], "<명령>", "%s", 1); want != questionRefusalFormat {
+		t.Fatalf("contract %q, CLI %q", want, questionRefusalFormat)
+	}
+	src, err := os.ReadFile("../../../server/internal/cards/rules.go")
+	if err != nil {
+		t.Log("server source not present; the contract comparison stands alone:", err)
+		return
+	}
+	sm := regexp.MustCompile(`return "(이 턴은 질문에 답하는 턴입니다 — )" \+ cliName \+ "( [^"]+)"`).FindStringSubmatch(string(src))
+	if sm == nil {
+		t.Fatal("cards/rules.go: QuestionRefusal is not where this test expects it")
+	}
+	if got := sm[1] + "%s" + sm[2]; got != questionRefusalFormat {
+		t.Fatalf("server %q, CLI %q", got, questionRefusalFormat)
+	}
+	if !reflect.DeepEqual(questionCommandsOfServer(t), questionCommandStrings()) {
+		t.Fatalf("question table drift: server %v, CLI %v", questionCommandsOfServer(t), questionCommandStrings())
+	}
+}
+
+func questionCommandStrings() []string {
+	out := make([]string, len(questionCommands))
+	for i, c := range questionCommands {
+		out[i] = string(c)
+	}
+	return out
+}
+
+func questionCommandsOfServer(t *testing.T) []string {
+	src, _ := os.ReadFile("../../../server/internal/cards/rules.go")
+	m := regexp.MustCompile(`(?s)var QuestionCommands = \[\]string\{(.*?)\}`).FindStringSubmatch(string(src))
+	if m == nil {
+		t.Fatal("cards/rules.go: QuestionCommands not found")
+	}
+	var out []string
+	for _, q := range regexp.MustCompile(`"([a-z_]+)"`).FindAllStringSubmatch(m[1], -1) {
+		out = append(out, q[1])
+	}
+	return out
 }

@@ -151,6 +151,8 @@ describe("S14 — 워크스페이스 탭 · 권한 · 저장 payload", () => {
     await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
     expect(patch.mock.calls[0][1]).toEqual({ path: { workspaceId: "w1" }, body: { loop_limits: { max_pair_roundtrips: 2 } } });
     await screen.findByTestId("settings-saved");
+    // #400 CI web: 「저장됨」 타이머(1.5초)를 기다려 끝낸다 — 테스트가 끝난 뒤 jsdom 이 걷힌 자리에서 터지지 않게(useFlash 가 언마운트 때도 치운다).
+    await waitFor(() => expect(screen.queryByTestId("settings-saved")).toBeNull(), { timeout: 2500 });
   });
 
   it("작업 폴더 탭: 보존 일수를 바꾸면 영향 문장이 그 값으로(U14-2) · 유예는 일수로 편집돼 ISO 로 나간다", async () => {

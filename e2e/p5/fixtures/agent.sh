@@ -27,7 +27,9 @@ phas() { printf '%s' "$P_NOPROG" | grep -qF -- "$1"; }
 is_start() { has "미션을 열었습니다" || has "미션을 시작했습니다" || has "세션을 시작했습니다" || has "Session started"; }
 post() { # post BODY [MENTION]
   local out; out="$(colab message post --body "$1" ${2:+--mention "$2"} 2>&1)"; log "post → $(printf '%s' "$out" | tr -d '\n' | cut -c1-160)"; }
-done_() { colab status set done >/dev/null 2>&1; log "status done"; }
+# T-CARD-S (PRD FR-3.8): 위임 카드·결과 카드 — fixtures/card.sh(인라인 exec 대본도 같은 것을 부른다).
+source "$(dirname "$0")/card.sh"
+done_() { report_card; colab status set done >/dev/null 2>&1; log "status done"; }
 submit() { # submit TYPE FILE NAME → artifact id (stdout)
   local out; out="$(colab artifact submit --type "$1" ${2:+--file "$2"} --name "$3" 2>&1)"
   log "artifact submit $3 → $(printf '%s' "$out" | tr -d '\n' | cut -c1-200)"
@@ -46,11 +48,11 @@ Lead)
     post "초안이 제출됐습니다. 수고했습니다."
   elif has "위임한 작업이 모두 끝났습니다"; then
     post "종합: 1) 시장 규모 — 완만한 성장 2) 경쟁 — 주요 5종 3) 채널 — 온라인 중심."
-    out="$(colab lane delegate --agent Writer --brief "위 종합을 바탕으로 보고서 초안을 파일로 쓰고 artifact 로 제출하라" 2>&1)"
+    out="$(delegate_card Writer "위 종합을 바탕으로 보고서 초안을 파일로 쓰고 artifact 로 제출하라" artifact)"
     log "delegate(Writer) → $(printf '%s' "$out" | tr -d '\n' | cut -c1-120)"
   elif is_start; then
     for t in "시장 규모와 성장률" "경쟁 제품 다섯 가지" "가격대와 구매 채널"; do
-      out="$(colab lane delegate --agent Researcher --brief "가상의 스마트 물병 제품 X 의 $t 를 조사해 요약하라" 2>&1)"
+      out="$(delegate_card Researcher "가상의 스마트 물병 제품 X 의 $t 를 조사해 요약하라")"
       log "delegate($t) → $(printf '%s' "$out" | tr -d '\n' | cut -c1-120)"
     done
     post "계획: 세 항목을 Researcher 에게 병렬로 위임했습니다."
@@ -93,13 +95,17 @@ PY
   fi ;;
 # ── 시나리오 B (worktree) ────────────────────────────────────────────────────
 PM)
-  if has "위임한 작업이 모두 끝났습니다"; then
+  if has "- QA:"; then
+    post "리뷰까지 끝났습니다."
+  elif has "위임한 작업이 모두 끝났습니다"; then
     fe="$(colab room messages --limit 50 2>/dev/null | jq -r '.items[]?.content // empty' | grep -o 'FRONTEND-DIFF [0-9a-f-]*' | tail -1 | awk '{print $2}')"
-    post "리뷰 부탁합니다. FRONTEND-DIFF ${fe:-?}" QA
+    # v0.19.15: 에이전트 멘션은 질문(답만) — 리뷰(review approve/reject)는 카드로 맡긴다.
+    out="$(delegate_card QA "리뷰 부탁합니다. FRONTEND-DIFF ${fe:-?}")"
+    log "delegate(QA) → $(printf '%s' "$out" | tr -d '\n' | cut -c1-120)"
   elif is_start; then
     printf '# SPEC\n급수 시간 계산과 패널 표시를 각각 구현한다.\n' > SPEC.md
     for pair in "Backend:src/pump.py 의 water_seconds 를 구현하라" "Frontend:src/ui.py 의 render 를 고쳐라"; do
-      out="$(colab lane delegate --agent "${pair%%:*}" --brief "${pair#*:}" 2>&1)"
+      out="$(delegate_card "${pair%%:*}" "${pair#*:}" artifact)"
       log "delegate(${pair%%:*}) → $(printf '%s' "$out" | tr -d '\n' | cut -c1-120)"
     done
     post "스펙을 썼고 Backend·Frontend 에 위임했습니다."
@@ -176,7 +182,7 @@ Faller|Lonely)
   log "guide artifact=$aid"
   done_ ;;
 # ── 역할 게이트 (82_, K-19) ─────────────────────────────────────────────────
-# Gate: 역할과 무관하게 **`lane delegate` 를 시도**하고 결과(exit·JSON)를 남긴 뒤, 토큰을 기록하고 하네스가
+# Gate: 역할과 무관하게 **`card delegate` 를 시도**(v0.9.10 — 옛 lane delegate)하고 결과(exit·JSON)를 남긴 뒤, 토큰을 기록하고 하네스가
 # `go` 파일을 줄 때까지 턴을 붙든다(서버 층은 하네스가 그 토큰으로 직접 POST /lanes 를 친다 — 토큰은 finish 뒤
 # 401 이라 턴이 살아 있어야 한다). 그 다음 message post(모든 역할이 허용) → done.
 #   콜랩 명령의 자리: 프롬프트가 래퍼 절대 경로(harness §10, hermes)를 이름하면 그 래퍼로, 아니면 PATH 의 colab 으로.
@@ -186,7 +192,9 @@ Gate)
   # 합류 통보(위임한 lane 이 다 끝남)로 깨어난 턴은 시도하지 않는다 — 다시 위임하면 합류↔위임 사이클(77_ 보고)이다.
   if has "위임한 작업이 모두 끝났습니다"; then post "확인했습니다."; done_; exit 0; fi
   cli="$(printf '%s\n' "$P" | grep -o '[^ `"]*/\.colab/bin/[^ `"]*/colab' | head -1)"; [ -n "$cli" ] || cli=colab
-  out="$("$cli" lane delegate --agent "${FAKE_DELEGATE_TO:-Lead}" --brief "대신 써 주세요" 2>"$gdir/gate-${COLAB_TASK_ID:-x}.err")"; code=$?
+  gcard="$gdir/gate-card-${COLAB_TASK_ID:-x}.json"
+  jq -nc --arg a "${FAKE_DELEGATE_TO:-Lead}" '{agent:$a, goal:"대신 써 주세요", criteria:[{text:"초안을 낸다", method:"artifact"}], boundaries:"다른 파일은 건드리지 않는다"}' > "$gcard"
+  out="$("$cli" card delegate --file "$gcard" 2>"$gdir/gate-${COLAB_TASK_ID:-x}.err")"; code=$?
   log "delegate via $cli → exit $code: $(printf '%s' "$out" | tr -d '\n' | cut -c1-160)"
   jq -nc --arg role "${COLAB_AGENT_NAME:-}" --argjson code "$code" --arg out "$out" --arg cli "$cli" --arg err "$(cat "$gdir/gate-${COLAB_TASK_ID:-x}.err")" \
     '{agent:$role, exit:$code, cli:$cli, out:(try ($out|fromjson) catch $out), stderr:$err}' > "$gdir/gate-${COLAB_TASK_ID:-x}.json"

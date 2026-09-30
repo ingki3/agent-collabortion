@@ -52,8 +52,9 @@ func TestV11EmptyTurnMessageClauseAlone(t *testing.T) {
 // its row on the feed, reads included.
 func TestCommandVerbsComplete(t *testing.T) {
 	all := roles.All()
-	if len(all) != 16 {
-		t.Fatalf("roles.All = %d commands, want the 16 of colab-cli.md §2.5", len(all))
+	// v0.9.10: lane_delegate → card_delegate, + card_report/accept/revise/get/list.
+	if len(all) != 21 {
+		t.Fatalf("roles.All = %d commands, want the 21 of colab-cli.md §2.5", len(all))
 	}
 	for _, cmd := range all {
 		verb, ok := commandVerbs[cmd]
@@ -94,14 +95,14 @@ func TestCommandAllowedReadsRoleOncePerRequest(t *testing.T) {
 	// consulted. `lead` may delegate; the row (reviewer) may not.
 	lead := "lead"
 	r := withPrincipal(httptest.NewRequest("POST", "/x", nil), &Principal{Task: sc, agentRole: &lead})
-	if p := f.srv.commandAllowed(r, gen.ColabCommandLaneDelegate); p != nil {
+	if p := f.srv.commandAllowed(r, gen.ColabCommandCardDelegate); p != nil {
 		t.Fatalf("with a cached role of lead, lane delegate = %v, want allowed — the cache decides within a request", p)
 	}
 	// 2. A fresh request: the first call reads the row (reviewer → 403) and
 	// fills the cache; the second call sees the cache.
 	pr := &Principal{Task: sc}
 	r = withPrincipal(httptest.NewRequest("POST", "/x", nil), pr)
-	if p := f.srv.commandAllowed(r, gen.ColabCommandLaneDelegate); p == nil || p.Code != "command_not_allowed" {
+	if p := f.srv.commandAllowed(r, gen.ColabCommandCardDelegate); p == nil || p.Code != "command_not_allowed" {
 		t.Fatalf("reviewer lane delegate = %v, want 403 command_not_allowed", p)
 	}
 	if pr.agentRole == nil || *pr.agentRole != "reviewer" {
@@ -109,12 +110,12 @@ func TestCommandAllowedReadsRoleOncePerRequest(t *testing.T) {
 	}
 	// Flip the row: within THIS request the cached verdict stands …
 	f.setRole(t, f.rUUID, "lead")
-	if p := f.srv.commandAllowed(r, gen.ColabCommandLaneDelegate); p == nil {
+	if p := f.srv.commandAllowed(r, gen.ColabCommandCardDelegate); p == nil {
 		t.Fatalf("second gate in the same request read the row again — want the cached reviewer verdict (one read per request)")
 	}
 	// … and the next request reads the row again.
 	r = withPrincipal(httptest.NewRequest("POST", "/x", nil), &Principal{Task: sc})
-	if p := f.srv.commandAllowed(r, gen.ColabCommandLaneDelegate); p != nil {
+	if p := f.srv.commandAllowed(r, gen.ColabCommandCardDelegate); p != nil {
 		t.Fatalf("a new request after the role change = %v, want allowed — the role is per request, never in the token", p)
 	}
 }

@@ -79,8 +79,10 @@ func TestLoopReportReturnLeadHubStaysShallow(t *testing.T) {
 		f.run(t, mate)
 		// teammate → Lead: the report comes home.
 		out, by := f.postFrom(t, m.id, mate, router.MentionLink("Lead", f.leadUUID)+" 끝났습니다")
-		if sp, resp := f.speechOf(t, uuid.UUID(out.Message.Id)); sp != "report" || resp == nil {
-			t.Fatalf("round %d: teammate's reply speech = %q responds_to=%v, want report with responds_to", i+1, sp, resp)
+		// v0.19.15 FR-3.8 2: Lead's mention asked a question; the teammate's
+		// reply in that question turn is an answer, which returns like a report.
+		if sp, resp := f.speechOf(t, uuid.UUID(out.Message.Id)); sp != "answer" || resp != nil {
+			t.Fatalf("round %d: teammate's reply speech = %q responds_to=%v, want answer", i+1, sp, resp)
 		}
 		next, ok := by[f.leadUUID]
 		if !ok {
@@ -281,8 +283,8 @@ func TestLoopReportReturnNestedDelegationDepths(t *testing.T) {
 
 	// W → R: the report goes home to R, which asked from depth 2.
 	out, by := f.postFrom(t, f.wUUID, w, router.MentionLink("R", f.rUUID)+" 끝났습니다")
-	if sp, resp := f.speechOf(t, uuid.UUID(out.Message.Id)); sp != "report" || resp == nil {
-		t.Fatalf("W's reply speech = %q responds_to = %v, want report with responds_to", sp, resp)
+	if sp, resp := f.speechOf(t, uuid.UUID(out.Message.Id)); sp != "answer" || resp != nil {
+		t.Fatalf("W's reply speech = %q responds_to = %v, want answer (v0.19.15 question turn)", sp, resp)
 	}
 	rAgain, ok := by[f.rUUID]
 	if !ok {
@@ -292,8 +294,11 @@ func TestLoopReportReturnNestedDelegationDepths(t *testing.T) {
 	// R → Lead: a hand-back. FR-3.1.3 makes it a `request`, so it does NOT
 	// rewind — the residual this case documents.
 	out2, by := f.postFrom(t, f.rUUID, rAgain, router.MentionLink("Lead", f.leadUUID)+" 정리했습니다")
-	if sp, resp := f.speechOf(t, uuid.UUID(out2.Message.Id)); sp != "request" || resp != nil {
-		t.Fatalf("R's hand-back speech = %q responds_to = %v, want request with no responds_to (FR-3.1.3 「보고에 대한 보고는 없다」) — if this changed, the residual below changed with it",
+	// v0.19.15 (Lead 판정 Q2): the turn W's answer woke is R's lane's kind
+	// (normal — R's own question turn is over), so R mentioning Lead there
+	// asks a question; no responds_to. Still no rewind — the residual below.
+	if sp, resp := f.speechOf(t, uuid.UUID(out2.Message.Id)); sp != "question" || resp != nil {
+		t.Fatalf("R's hand-back speech = %q responds_to = %v, want question with no responds_to — if this changed, the residual below changed with it",
 			sp, resp)
 	}
 	leadAgain, ok := by[f.leadUUID]

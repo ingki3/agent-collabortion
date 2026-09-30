@@ -65,6 +65,8 @@ describe("S14 알림 — 구독 단위 3층", () => {
     expect([...(level as HTMLSelectElement).options].map((o) => o.textContent)).toEqual(Object.values(ROOM_SUB_LABEL));
     fireEvent.change(level, { target: { value: "hitl_only" } });
     await screen.findByTestId("sub-saved");
+    // #400 CI web: 「저장됨」 타이머를 기다려 끝낸다(useFlash 가 언마운트 때도 치운다).
+    await waitFor(() => expect(screen.queryByTestId("sub-saved")).toBeNull(), { timeout: 2500 });
     expect((await bridge.call<{ my_subscription: string }>("GET", `/rooms/${roomId}`)).body.my_subscription).toBe("hitl_only");
     expect(screen.getByTestId("subs-works")).toBeInTheDocument();
     expect(screen.getByTestId("subs-lanes")).toBeInTheDocument();

@@ -49,6 +49,8 @@ var prdTables = []string{
 	// task_context_metric — T-CTX0 계측(CONTEXT_MEMORY 0단계). 0단계에서는 관측
 	// 전용이지만, 맥락 1단계 ③(harness v0.9.14 §6)이 세션 상한 판정에 이 표를 읽는다.
 	"task_context_metric",
+	// task_cards — 작업 카드(PRD v0.19.15 FR-3.8, T-CARD-S): 위임 카드·결과 카드·판정.
+	"task_card",
 }
 
 // prdEnums pins every state set to the exact PRD labels (task item 2).

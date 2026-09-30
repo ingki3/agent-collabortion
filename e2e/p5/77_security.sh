@@ -66,7 +66,7 @@ SLOW="$(PROFILE_ENV="$(fake_env Slow claude "$(jq -nc --arg fix "$FIX" '{turns:[
 # Probe 의 위임 대상 = Guard: 위임 브리프를 받으면 Guard 의 대본(Probe 역할)이 ok 를 게시한다.
 # 깨어날 때마다 다시 위임한다 — 합류(위임 완료 통보)로 깨어나도 또 위임하므로 **위임↔합류 사이클**이 된다.
 # 8회로 묶는다(S-76 이전: 무한 반복, 70초에 529회, 세션 active 그대로. 이제는 FR-3.5 가 이 경로도 봐서 그 전에 멈춘다).
-DELEG_CMD='n=$(cat "$FAKE_OUT/deleg-count" 2>/dev/null || echo 0); if [ "$n" -lt 8 ]; then echo $((n+1)) > "$FAKE_OUT/deleg-count"; colab lane delegate --agent Guard --brief "체인 확인 $n" 2>&1; fi'
+DELEG_CMD='n=$(cat "$FAKE_OUT/deleg-count" 2>/dev/null || echo 0); if [ "$n" -lt 8 ]; then echo $((n+1)) > "$FAKE_OUT/deleg-count"; bash '"$FIX"'/card.sh delegate Guard "체인 확인 $n"; fi'
 rm -f "$E2E_OUT/fake-records/deleg-count"
 DELEGATOR="$(PROFILE_ENV="$(fake_env Probe claude | jq -c --arg c "$DELEG_CMD" '. + {FAKE_CMD:$c}')" create_agent_kind "$WS" Delegator lead claude_code "$MODEL" "$PROBE_INS" '위임자')"
 ok "Probe=$PROBE Guard=$GUARD Slow=$SLOW Delegator=$DELEGATOR"

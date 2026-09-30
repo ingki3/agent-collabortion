@@ -71,6 +71,7 @@ export const NOT_FOUND_NOUN: Record<string, string> = {
   runtime: "컴퓨터",
   pairing: "연결 코드",
   lane: "서브 미션",
+  card: "작업 카드",
   task: "할 일",
   inbox_item: "받은 요청",
   hitl_request: "확인 요청",
@@ -285,6 +286,59 @@ export const SEED = {
 } as const;
 
 export const MOCK_ONLY = {} as const satisfies Record<string, string>; // 비어 있다 — T-S19 #246 이 빈 턴 문장을 만들어 SERVER 로 옮겼다
+
+/**
+ * 작업 카드(v0.3.10, PRD FR-3.8 · T-CARD-W) — 목의 카드 op 문장. 서버(T-CARD-S)가 아직 없어 **대조할 정답이 없다** — `MOCK_ONLY` 와 나눈 이유는
+ * (i) 테스트가 `MOCK_ONLY` 를 빈 표로 못박기 때문이다. T-CARD-S 가 문장을 만들면 `SERVER` 로 옮긴다(글자는 계약 openapi 설명 그대로 가져왔다).
+ */
+export const CARD_MOCK = {
+  not_card_judge: "이 카드를 판정할 수 없습니다 — 위임한 에이전트나 미션 Director·deputy 만 수락·수정 요청을 합니다",
+  not_judgeable: "지금은 판정할 때가 아닙니다",
+  not_open: "진행 중인 카드에만 결과를 낼 수 있습니다",
+  reason_required: "수정 요청에는 사유를 적어 주세요",
+  result_incomplete: "위임 카드의 완료 기준을 하나도 빠짐없이 한 번씩 판정해 주세요",
+  /** 서버 cards.CheckResult 의 confirmed 칸 사유(openapi CardResultInput.confirmed minItems 1) — #400 리뷰 400b NN2. */
+  confirmed_required: "직접 확인한 것을 하나 이상 적어 주세요 — 확인하지 않고 가정한 것은 assumed 에 따로",
+  downgraded_notice: "근거가 없는 「충족」은 「부분」으로 낮춰 저장했습니다 — 기준 ",
+  no_agent: "Lead · Researcher · Designer · Developer · Writer 가 방에 있어야 합니다",
+  auto_summary: "결과 카드 없이 끝남",
+  not_found: "카드를 찾을 수 없습니다",
+} as const satisfies Record<string, string>;
+
+/** 작업 카드 시드(`/__mock/rooms/{id}/seed-cards`)의 문장 — Pencil `S7-K 작업 카드` 의 예 그대로(마리오 카트 방). */
+export const CARD_SEED = {
+  order: "커브가 어색하고 스프라이트도 아직이야. 나눠서 맡겨 줘.",
+  artifact_plan: "기획서 v3",
+  decision_tile: "타일 32px",
+  c1: {
+    goal: "경쟁작 조사", boundaries: "코드·에셋을 만들지 않는다 — 조사만",
+    criteria: [["경쟁작 5종의 조작 방식을 표로", "artifact"], ["드리프트 처리 방식 비교", "review"], ["출처 링크", "inspect"]] as [string, string][],
+    output: "표 한 장(마크다운)", summary: "경쟁작 5종의 조작 방식과 드리프트 처리를 표로 정리했습니다.", confirmed: ["5종 모두 실제 플레이 영상으로 확인"],
+  },
+  c2: {
+    goal: "차량 스프라이트 24방향", boundaries: "물리 코드(Developer 담당)",
+    criteria: [["24방향 스프라이트 시트", "artifact"], ["타일 32px 격자에 맞음", "inspect"]] as [string, string][], output: "PNG 스프라이트 시트",
+  },
+  c3: {
+    goal: "커브에서 차가 미끄러지는 감각을 실차처럼", boundaries: "스프라이트·효과음 파일(Designer 담당)",
+    criteria: [["코너 진입 속도가 곡률에 따라 줄어든다", "test"], ["벽 충돌 뒤 0.5초 안에 다시 가속된다", "run"], ["기존 레이스 기록 화면이 깨지지 않는다", "inspect"]] as [string, string][],
+    output: "코드 diff + 실행 영상", evidence_log: "test-corner.log",
+    summary: "횡가속도 상한을 곡률에 묶었고 충돌 복귀를 0.4초로 줄였습니다. 대각선 벽은 아직 확인하지 못했습니다.",
+    note2: "대각선 벽은 확인 못 함", confirmed: ["직선·곡선 벽 충돌 20회 재생"], assumed: ["기록 화면은 건드리지 않았으니 그대로일 것"],
+    deviations: "복귀 시간을 0.4초로(카드는 0.5초) — 체감상 더 자연스러움", open_issues: "대각선 벽 충돌 판정",
+  },
+  c4: { goal: "대각선 벽 판정", boundaries: "직선 벽 코드는 건드리지 않는다", criteria: [["45° 벽에서 튕김 각도가 반사각", "test"]] as [string, string][] },
+  c5: {
+    goal: "플레이 가이드", boundaries: "게임 코드·에셋",
+    criteria: [["조작 설명(가속·브레이크·드리프트)", "review"], ["한 쪽 분량", "inspect"], ["스크린샷 3장", "artifact"]] as [string, string][],
+    summary: "조작 설명과 스크린샷을 넣어 한 쪽으로 썼습니다.", confirmed: ["한 쪽 분량 — 인쇄 미리보기로 확인"],
+    note1: "드리프트는 아직 없음", revise: "조작 설명에 드리프트가 빠졌습니다 — 추가해 주세요",
+    criteria2: [["조작 설명(가속·브레이크·드리프트) — 드리프트 포함", "review"], ["한 쪽 분량", "inspect"], ["스크린샷 3장", "artifact"]] as [string, string][],
+  },
+  question: "경쟁작 조사에서 드리프트 조작 방식도 봤나요?",
+  answer: "네 — 표의 셋째 열이 드리프트 방식입니다. 5종 중 3종이 버튼 드리프트입니다.",
+  missing_ref: "옛 가이드 초안",
+} as const;
 
 /**
  * 관측 지표 10개의 정의 — 서버 `internal/metrics/metrics.go` 의 `Defs` 표(PRD §11 열 순서)를 **그대로** 옮긴 것.

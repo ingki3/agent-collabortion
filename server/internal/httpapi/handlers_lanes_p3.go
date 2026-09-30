@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
@@ -155,6 +156,20 @@ func (s *Server) restartLane(ctx context.Context, laneID, wsID, sessionID, userI
 	if _, err := s.DB.Exec(ctx, `UPDATE lane SET status = 'running', finished_at = NULL, updated_at = $2 WHERE id = $1`,
 		laneID, now); err != nil {
 		return 0, nil, apperr.Internal(err)
+	}
+	// T-CARD-S (#400 리뷰 400b NN6): the lane's failure (or step 1's cancel)
+	// cancelled its card; the restart brings it back — same version,
+	// in_progress — before the message, so the new task is a card task and
+	// its result can be submitted.
+	if err := s.inSessionTx(ctx, func(tx pgx.Tx) error {
+		id, err := cards.ReviveOnLane(ctx, tx, laneID, now)
+		if err != nil || id == uuid.Nil {
+			return err
+		}
+		cards.Publish(ctx, s.Hub, tx, id, "card.updated")
+		return nil
+	}); err != nil {
+		return 0, nil, apperr.As(err)
 	}
 
 	// 3. The new instruction goes on the timeline as a message. That is what

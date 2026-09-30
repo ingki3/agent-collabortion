@@ -506,6 +506,15 @@ func problemError(status int, raw []byte) *Error {
 			// reason, top-level in the --json error like command_not_allowed's.
 			e.Extra = map[string]any{"denied_reason": p.DeniedReason}
 		}
+		if len(p.Errors) > 0 {
+			// colab-cli v0.9.10: card_invalid · result_card_incomplete carry
+			// every field's reason — top-level `errors[]` in the exit 3 JSON,
+			// which the agent reads, fixes, and resubmits.
+			if e.Extra == nil {
+				e.Extra = map[string]any{}
+			}
+			e.Extra["errors"] = p.Errors
+		}
 	}
 	if e.Title == "" {
 		e.Title = http.StatusText(status)

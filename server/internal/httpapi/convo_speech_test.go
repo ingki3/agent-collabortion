@@ -130,7 +130,7 @@ func TestConvoSpeech_QuestionCardWaitingFor(t *testing.T) {
 	// 사람이 직접 불러 만든 lane — 위임자가 없다.
 	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 	leadTask := mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id"))
-	st, err := f.srv.Router.SetAgentStatus(ctx, leadTask, 1, "blocked", "어디까지 할까요?")
+	st, err := f.setStatus(ctx, leadTask, 1, "blocked", "어디까지 할까요?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,11 +148,11 @@ func TestConvoSpeech_QuestionCardWaitingFor(t *testing.T) {
 	}
 
 	// 위임으로 만든 lane 은 위임자를 멘션하므로 멘션 쪽으로 간다(표 3행 전반).
-	del, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "A 조사"})
+	del, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "A 조사"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	st2, err := f.srv.Router.SetAgentStatus(ctx, mustUUID(t, del.Task.Id.String()), 1, "blocked", "범위는요?")
+	st2, err := f.setStatus(ctx, mustUUID(t, del.Task.Id.String()), 1, "blocked", "범위는요?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestConvoSpeech_ServerDecidesAtWrite(t *testing.T) {
 	leadTask := mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id"))
 
 	// 위임: router.Delegate writes it and knows it.
-	del, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "A 조사"})
+	del, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "A 조사"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,12 +251,14 @@ func TestConvoSpeech_ServerDecidesAtWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *req.Message.Speech != gen.MessageSpeechRequest {
-		t.Fatalf("agent→other agent speech = %s, want request", *req.Message.Speech)
+	// PRD FR-3.8 2 (v0.19.15): an agent's mention of another agent with no
+	// card asks a question (task kind question) — no longer a request.
+	if *req.Message.Speech != gen.MessageSpeechQuestion {
+		t.Fatalf("agent→other agent speech = %s, want question", *req.Message.Speech)
 	}
 
 	// 질문: blocked card. 답: a thread reply to it.
-	st, err := f.srv.Router.SetAgentStatus(ctx, rTask, 1, "blocked", "범위가 어디까지인가요?")
+	st, err := f.setStatus(ctx, rTask, 1, "blocked", "범위가 어디까지인가요?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +299,7 @@ func TestConvoSpeech_ServerDecidesAtWrite(t *testing.T) {
 		instructID:                    "instruct",
 		del.Message.Id.String():       "delegate",
 		rep.Message.Id.String():       "report",
-		req.Message.Id.String():       "request",
+		req.Message.Id.String():       "question",
 		st.QuestionMessageID.String(): "question",
 		ansID:                         "answer",
 		noteID:                        "note",
@@ -362,13 +364,13 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 	leadTask := mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id"))
 	// (NN3) 위임 없이 사람이 만든 lane 의 질문 카드 — 멘션이 없다.
-	if _, err := f.srv.Router.SetAgentStatus(ctx, leadTask, 1, "blocked", "어디까지 할까요?"); err != nil {
+	if _, err := f.setStatus(ctx, leadTask, 1, "blocked", "어디까지 할까요?"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `UPDATE lane SET status = 'running', blocked_message_id = NULL WHERE id = (SELECT lane_id FROM task WHERE id = $1)`, leadTask); err != nil {
 		t.Fatal(err)
 	}
-	del, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "A 조사"})
+	del, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "A 조사"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +406,7 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	st, err := f.srv.Router.SetAgentStatus(ctx, rTask, 1, "blocked", "질문?")
+	st, err := f.setStatus(ctx, rTask, 1, "blocked", "질문?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,6 +430,7 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 	f.post(t, map[string]any{"content": "그냥 말"})
 
 	before := speechSnapshot(t, ctx, f, sessionID)
+	cardEra := questionEraRows(t, f, sessionID)
 	if len(before) < 8 {
 		t.Fatalf("only %d messages — fixture did not write the round", len(before))
 	}
@@ -435,14 +438,16 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 	for _, r := range before {
 		seen[r.speech] = true
 	}
-	for _, want := range []string{"question", "answer", "report", "delegate", "chat", "note", "instruct", "request"} {
+	// v0.19.15: an agent no longer writes `request` (a mention asks a
+	// question; work goes on a card), so the fixture has none.
+	for _, want := range []string{"question", "answer", "report", "delegate", "chat", "note", "instruct"} {
 		if !seen[want] {
 			t.Fatalf("fixture never produced %q — the parity test would not compare that row: %v", want, seen)
 		}
 	}
 	// B6: the chain rows exist and Store decided them as the rule says —
 	// otherwise the parity below would compare nothing new.
-	for id, want := range map[uuid.UUID]string{reqByLead[0]: "request", reqByLead[1]: "chat", againByR: "report", wReport: "report"} {
+	for id, want := range map[uuid.UUID]string{reqByLead[0]: "question", reqByLead[1]: "chat", againByR: "answer", wReport: "answer"} {
 		if got := before[id.String()].speech; got != want {
 			t.Fatalf("chain message %s: Store = %q, want %q", id, got, want)
 		}
@@ -452,8 +457,8 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 			t.Fatalf("upstream message %s: Store = %q, want %q", id, got, want)
 		}
 	}
-	if got := before[wReport.String()].resp; got != r3.Message.Id.String() {
-		t.Fatalf("W's report responds_to = %q, want R's report %s", got, r3.Message.Id)
+	if got := before[wReport.String()].resp; got != "" {
+		t.Fatalf("W's answer responds_to = %q, want none (an answer carries no ↩)", got)
 	}
 
 	if _, err := f.pool.Exec(ctx, `UPDATE message SET speech = NULL, addressees = '[]', responds_to_message_id = NULL, delegated_lane_id = NULL WHERE session_id = $1`, sessionID); err != nil {
@@ -463,7 +468,14 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 		t.Fatalf("backfill: %v", err)
 	}
 	after := speechSnapshot(t, ctx, f, sessionID)
+	// v0.19.15 FR-3.8 2: question/answer rows are decided at write time from
+	// the task kind (question task), which the 0037-era backfill does not
+	// know — it is frozen SQL over old rows that have no question task. The
+	// parity holds for every other row.
 	for id, b := range before {
+		if cardEra[id] {
+			continue
+		}
 		a := after[id]
 		if a.speech != b.speech || a.resp != b.resp || a.lane != b.lane || !sameJSON(t, a.addr, b.addr) {
 			t.Errorf("message %s: backfill %+v, Store %+v", id, a, b)
@@ -487,6 +499,9 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 	}
 	again := speechSnapshot(t, ctx, f, sessionID)
 	for id, b := range before {
+		if cardEra[id] {
+			continue
+		}
 		a := again[id]
 		if a.speech != b.speech || a.resp != b.resp || a.lane != b.lane || !sameJSON(t, a.addr, b.addr) {
 			t.Errorf("message %s: second backfill %+v, Store %+v", id, a, b)
@@ -519,12 +534,13 @@ func reportChain(t *testing.T, f *p2Fixture, sessionID uuid.UUID, fromReport *ge
 		t.Fatal(err)
 	}
 	// 에이전트를 멘션한 말은 요청(B6 유지) — 받는 쪽은 멘션된 R.
-	if m := withMention.Message; *m.Speech != gen.MessageSpeechRequest {
-		t.Errorf("Lead's order with an agent mention in a turn woken by a report: speech = %s, want request (%q)", *m.Speech, m.Content)
+	// v0.19.15 FR-3.8 2: a mention of an agent with no card is a question.
+	if m := withMention.Message; *m.Speech != gen.MessageSpeechQuestion {
+		t.Errorf("Lead's order with an agent mention in a turn woken by a report: speech = %s, want question (%q)", *m.Speech, m.Content)
 	} else if to := *m.Addressees; len(to) != 1 || to[0].Name != "R" {
 		t.Errorf("addressees = %+v, want [R]", to)
 	} else if v, err := m.RespondsToMessageId.Get(); err == nil {
-		t.Errorf("a request has no responds_to, got %v", v)
+		t.Errorf("a question has no responds_to, got %v", v)
 	}
 	// 멘션 없는 말은 윗선 요청자에게 보고(v0.19.8) — 여기서는 R 의 보고가 답한 위임을 쓴
 	// Lead 턴이 미션 시작 줄(시스템)로 깨어났으므로 윗선을 못 찾는다 → 대화, 방 전체.
@@ -537,8 +553,8 @@ func reportChain(t *testing.T, f *p2Fixture, sessionID uuid.UUID, fromReport *ge
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *again.Message.Speech != gen.MessageSpeechReport {
-		t.Errorf("R's answer to a request = %s, want report", *again.Message.Speech)
+	if *again.Message.Speech != gen.MessageSpeechAnswer {
+		t.Errorf("R's reply in the question turn = %s, want answer", *again.Message.Speech)
 	}
 	return [2]uuid.UUID{withMention.Message.Id, bare.Message.Id}, again.Message.Id
 }
@@ -575,14 +591,16 @@ func chipWokenReport(t *testing.T, f *p2Fixture, sessionID uuid.UUID, report *ge
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *res.Message.Speech != gen.MessageSpeechReport {
-		t.Errorf("W woken by a mention chip in R's report answers R: speech = %s, want report", *res.Message.Speech)
+	// v0.19.15: the chip in R's report asked W a question (FR-3.8 2), so
+	// what W says back to R in that question turn is an answer, no ↩.
+	if *res.Message.Speech != gen.MessageSpeechAnswer {
+		t.Errorf("W woken by a mention chip in R's report answers R: speech = %s, want answer", *res.Message.Speech)
 	}
 	if to := *res.Message.Addressees; len(to) != 1 || to[0].Name != "R" {
 		t.Errorf("addressees = %+v, want [R]", to)
 	}
-	if v, err := res.Message.RespondsToMessageId.Get(); err != nil || v != report.Message.Id {
-		t.Errorf("responds_to = %v (%v), want R's report %s", v, err, report.Message.Id)
+	if v, err := res.Message.RespondsToMessageId.Get(); err == nil {
+		t.Errorf("responds_to = %v, want none", v)
 	}
 	return res.Message.Id
 }
@@ -613,7 +631,7 @@ func upstreamRound(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[uuid.UUI
 	h1 := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " v9 만들어 주세요"})
 	h1ID := mustUUID(t, str(h1["message"].(map[string]any), "id"))
 	turn1 := turnWokenBy(t, f, f.leadUUID, h1ID)
-	d1, err := f.srv.Router.Delegate(ctx, turn1, router.DelegateInput{AgentID: f.rUUID, Brief: "v9 빌드"})
+	d1, err := f.srv.Router.Delegate(ctx, turn1, testCard(f.rUUID, "v9 빌드"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -659,12 +677,12 @@ func upstreamRound(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[uuid.UUI
 	human := postAs(lead2, router.UserMentionLink("Dir", dirID)+" v9 확인 부탁드립니다")
 	check("사람만 멘션", human, want{gen.MessageSpeechReport, dirID, &h1ID})
 	q1 := postAs(lead2, router.MentionLink("W", f.wUUID)+" v9 검토해 주세요")
-	check("에이전트 멘션(B6)", q1, want{gen.MessageSpeechRequest, f.wUUID, nil})
+	check("에이전트 멘션(B6 → v0.19.15 질문)", q1, want{gen.MessageSpeechQuestion, f.wUUID, nil})
 
 	wTask := turnWokenBy(t, f, f.wUUID, q1.Id)
 	w := router.Author{Type: "agent", AgentID: &f.wUUID, TaskID: &wTask, Attempt: 1}
 	rep2 := postAs(w, router.MentionLink("Lead", f.leadUUID)+" 검토 끝, 문제 없음")
-	check("W 의 보고", rep2, want{gen.MessageSpeechReport, f.leadUUID, &q1.Id})
+	check("W 의 답(질문 턴)", rep2, want{gen.MessageSpeechAnswer, f.leadUUID, nil})
 	turn3 := turnWokenBy(t, f, f.leadUUID, rep2.Id)
 	lead3 := router.Author{Type: "agent", AgentID: &f.leadUUID, TaskID: &turn3, Attempt: 1}
 	bare2 := postAs(lead3, "검토까지 끝났습니다")
@@ -697,8 +715,8 @@ func upstreamRound(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[uuid.UUI
 	allHuman := postAs(lead2, "[@all](mention://all/all) "+router.UserMentionLink("Dir", dirID)+" v9 올렸습니다")
 	check("`@all` + 사람 — `@all` 은 받는 쪽에서 뺀다", allHuman, want{gen.MessageSpeechReport, dirID, &h1ID})
 	allAgent := postAs(lead2, "[@all](mention://all/all) "+router.MentionLink("W", f.wUUID)+" 한 번 봐 주세요")
-	if *allAgent.Speech != gen.MessageSpeechRequest {
-		t.Errorf("`@all` + 에이전트: speech = %s, want request", *allAgent.Speech)
+	if *allAgent.Speech != gen.MessageSpeechQuestion {
+		t.Errorf("`@all` + 에이전트: speech = %s, want question", *allAgent.Speech)
 	}
 	if to := *allAgent.Addressees; len(to) != 2 {
 		t.Errorf("`@all` + 에이전트: addressees = %+v, want [all W]", to)
@@ -712,7 +730,7 @@ func upstreamRound(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[uuid.UUI
 		t.Fatal(err)
 	}
 	sysTurn := turnWokenBy(t, f, f.leadUUID, sysMsg)
-	dSys, err := f.srv.Router.Delegate(ctx, sysTurn, router.DelegateInput{AgentID: f.rUUID, Brief: "시스템이 깨운 턴의 위임"})
+	dSys, err := f.srv.Router.Delegate(ctx, sysTurn, testCard(f.rUUID, "시스템이 깨운 턴의 위임"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -729,7 +747,7 @@ func upstreamRound(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[uuid.UUI
 	// (#370 리뷰 NN2) 윗선이 **자기 자신**이면 멈춘다 — 사슬이 자기가 쓴 말로 돌아오는
 	// 재위임 모양. q1(Lead 가 쓴 요청)으로 깨운 Lead 턴에서 위임한다.
 	selfTurn := turnWokenBy(t, f, f.leadUUID, q1.Id)
-	dSelf, err := f.srv.Router.Delegate(ctx, selfTurn, router.DelegateInput{AgentID: f.rUUID, Brief: "자기 말로 돌아오는 위임"})
+	dSelf, err := f.srv.Router.Delegate(ctx, selfTurn, testCard(f.rUUID, "자기 말로 돌아오는 위임"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -742,9 +760,9 @@ func upstreamRound(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[uuid.UUI
 		t.Errorf("윗선이 자기 자신이면 멈춘다: speech = %s to %+v, want chat to the room", *selfStop.Speech, *selfStop.Addressees)
 	}
 
-	return map[uuid.UUID]string{bare1.Id: "report", human.Id: "report", q1.Id: "request", bare2.Id: "report",
+	return map[uuid.UUID]string{bare1.Id: "report", human.Id: "report", q1.Id: "question", bare2.Id: "report",
 		bareR.Id: "report", humanOther.Id: "report",
-		allOnly.Id: "chat", allHuman.Id: "report", allAgent.Id: "request",
+		allOnly.Id: "chat", allHuman.Id: "report", allAgent.Id: "question",
 		sysStop.Id: "chat", selfStop.Id: "chat"}
 }
 
@@ -762,7 +780,7 @@ func TestConvoSpeech_UpstreamStopsAtAHumanWrittenRespondsTo(t *testing.T) {
 	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 	h1 := mustUUID(t, str(post["message"].(map[string]any), "id"))
 	turn1 := turnWokenBy(t, f, f.leadUUID, h1)
-	del, err := f.srv.Router.Delegate(ctx, turn1, router.DelegateInput{AgentID: f.rUUID, Brief: "A"})
+	del, err := f.srv.Router.Delegate(ctx, turn1, testCard(f.rUUID, "A"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -808,8 +826,13 @@ func turnWokenBy(t *testing.T, f *p2Fixture, agent, msg uuid.UUID) uuid.UUID {
 	t.Helper()
 	var id uuid.UUID
 	if err := f.pool.QueryRow(t.Context(), `
-		INSERT INTO task (lane_id, session_id, agent_id, profile_id, status, trigger_message_id, originator_user_id, created_at, updated_at)
-		SELECT lane_id, session_id, agent_id, profile_id, 'completed', $2, originator_user_id, $3, $3
+		INSERT INTO task (lane_id, session_id, agent_id, profile_id, status, trigger_message_id, originator_user_id, created_at, updated_at, kind)
+		SELECT lane_id, session_id, agent_id, profile_id, 'completed', $2, originator_user_id, $3, $3,
+		       -- v0.19.15: the turn a question woke is a question task (the
+		       -- router makes it so when the mention is routed; here the
+		       -- turn is stood in by hand, so read the message's speech).
+		       CASE WHEN (SELECT speech FROM message WHERE id = $2) = 'question'
+		                 AND (SELECT author_type FROM message WHERE id = $2) = 'agent' THEN 'question' ELSE 'normal' END
 		FROM task WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 1
 		RETURNING id`, agent, msg, f.fake.Now()).Scan(&id); err != nil {
 		t.Fatal(err)
@@ -874,4 +897,29 @@ func sameJSON(t *testing.T, a, b string) bool {
 		t.Fatal(err)
 	}
 	return reflect.DeepEqual(x, y)
+}
+
+// questionEraRows is the set of messages PRD FR-3.8 2 decides from the
+// question task: an agent's question, what a question turn wrote, and what
+// a turn an answer woke wrote (its upstream walks through the answer).
+func questionEraRows(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[string]bool {
+	t.Helper()
+	rows, err := f.pool.Query(t.Context(), `
+		SELECT m.id::text FROM message m LEFT JOIN task k ON k.id = m.source_task_id
+		LEFT JOIN message tm ON tm.id = k.trigger_message_id
+		WHERE m.session_id = $1 AND (m.speech IN ('question', 'answer') AND m.author_type = 'agent' OR k.kind = 'question'
+		      OR tm.speech = 'answer' AND tm.author_type = 'agent')`, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		out[id] = true
+	}
+	return out
 }

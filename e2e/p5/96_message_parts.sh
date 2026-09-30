@@ -9,7 +9,7 @@
 #   P2  행마다 판정: 보고 → Director(↩ 원래 지시) · 요청 → Writer · 요청 → Researcher (본문 속 @Writer 링크는 Researcher 부분의 받는 쪽이 아니다)
 #   P3  두 에이전트가 **각자 제 부분**으로만 깨어났다 — task 하나씩, trigger = 제 부분 행. 본문 속 @Writer 는 Writer 를 두 번 깨우지 않았다
 #   P4  사람 부분은 알림만 — Director 에게 mention 인박스 1건(그 부분 인용) · 그 부분이 만든 task 0
-#   P5  Writer 번들: <trigger> 에 제 부분만 + group 속성 + 「Other parts of the same message: → Director (report) · → @Researcher (request)」,
+#   P5  Writer 번들: <trigger> 에 제 부분만 + group 속성 + 「Other parts of the same message: → Director (report) · → @Researcher (question)」(T-CARD-S: 에이전트 간 멘션 = 질문),
 #       남의 부분 본문 0 · 브리프 [2] 부분 메시지 줄(표면별 — claude_code 는 mcp 말)
 #   P6  listMessages ?group= → 셋, group_index 순
 #   (422 네 가지 · 원자성 · 멱등은 서버 테스트 message_parts_test.go 가 소유 — 데몬 밖에서는 TaskToken 을 쥘 수 없다)
@@ -78,7 +78,8 @@ chk P1b "같은 group_id · index 0,1,2 · size 3" "1|0,1,2|3,3,3" \
   "$(awk -F'\t' '{print $3}' "$OUT/96-rows.txt" | sort -u | wc -l | tr -d ' ')|$(awk -F'\t' '{print $1}' "$OUT/96-rows.txt" | paste -sd, -)|$(awk -F'\t' '{print $4}' "$OUT/96-rows.txt" | paste -sd, -)"
 P0="$(awk -F'\t' '$1==0{print $2}' "$OUT/96-rows.txt")"; P1="$(awk -F'\t' '$1==1{print $2}' "$OUT/96-rows.txt")"; P2="$(awk -F'\t' '$1==2{print $2}' "$OUT/96-rows.txt")"
 TRIG_L="$ORDER"
-chk P2a "판정: 보고→Director · 요청→Writer · 요청→Researcher" "report:Director|request:Writer|request:Researcher" \
+# T-CARD-S(PRD FR-3.8 2): 카드 없는 에이전트→에이전트 멘션은 질문이다 — speech question.
+chk P2a "판정: 보고→Director · 질문→Writer · 질문→Researcher" "report:Director|question:Writer|question:Researcher" \
   "$(awk -F'\t' '{print $5":"$6}' "$OUT/96-rows.txt" | paste -sd'|' -)"
 chk P2b "보고의 ↩ = Lead 를 깨운 지시" "$TRIG_L" "$(awk -F'\t' '$1==0{print $7}' "$OUT/96-rows.txt")"
 chk P2c "Researcher 부분 addressees 는 Researcher 하나(본문 @Writer 제외)" 1 "$(psqlq "select jsonb_array_length(addressees) from message where id='$P2'")"
@@ -107,7 +108,7 @@ for line in open(tap):
         p = b["prompt"]; t = p[p.find("<trigger>\n"):p.find("</trigger>")]
         own = "WRITER-ONLY" in t
         others = ("DIRECTOR-ONLY" in t) or ("RESEARCHER-ONLY" in t)
-        line_ok = "Other parts of the same message: → Director (report) · → @Researcher (request)." in t
+        line_ok = "Other parts of the same message: → Director (report) · → @Researcher (question)." in t
         attr = ('group="%s"' % gid) in t
         brief = "send one message in parts: the `parts` argument of `colab_message_post` — one part per recipient." in b["brief"]["text"]
         print("|".join("yes" if x else "no" for x in (own, not others, attr, line_ok, brief)))
