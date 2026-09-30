@@ -475,3 +475,62 @@ func (s *Service) reenterCardLane(ctx context.Context, tx pgx.Tx, c *cards.Row, 
 		Kind: cards.KindCard, CardID: &c.ID,
 	})
 }
+
+// ResumeStalledCards re-enters the card lanes a loop pause left without a
+// task (#400 리뷰 400a NN2): a revise over the FR-3.5 limit makes the new
+// version but no task (openapi reviseCard) and the room stops. When the room
+// owner lifts the loop gate, every open card of the room whose lane has no
+// task carrying its current version's delegation bubble gets its card task —
+// otherwise that version would never run and the join above it would wait
+// forever. The originator is the delegator's task's, as for a revise by the
+// delegator. Returns the tasks it queued.
+func (s *Service) ResumeStalledCards(ctx context.Context, tx pgx.Tx, roomID uuid.UUID, now time.Time) ([]uuid.UUID, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT c.id, c.delegate_message_id
+		FROM task_card c JOIN lane l ON l.id = c.lane_id
+		WHERE c.room_id = $1 AND c.status = 'in_progress' AND c.delegate_message_id IS NOT NULL
+		  AND l.status NOT IN ('blocked', 'waiting_human')
+		  AND NOT EXISTS (SELECT 1 FROM task t WHERE t.lane_id = c.lane_id
+		                  AND (t.trigger_message_id = c.delegate_message_id OR c.delegate_message_id = ANY (t.coalesced_message_ids)))
+		ORDER BY c.number`, roomID)
+	if err != nil {
+		return nil, err
+	}
+	type stalled struct{ card, msg uuid.UUID }
+	var list []stalled
+	for rows.Next() {
+		var x stalled
+		if err := rows.Scan(&x.card, &x.msg); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		list = append(list, x)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var out []uuid.UUID
+	for _, x := range list {
+		c, err := cards.Get(ctx, tx, x.card)
+		if err != nil {
+			return nil, err
+		}
+		taskID, err := s.reenterCardLane(ctx, tx, c, x.msg, Judgement{TaskID: c.DelegatorTaskID}, now)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, taskID)
+		if s.Hub != nil {
+			if t, err := tasks.Get(ctx, tx, taskID); err == nil {
+				api := tasks.ToAPI(t, nil, nil)
+				var wsID uuid.UUID
+				if err := tx.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, roomID).Scan(&wsID); err == nil {
+					room := roomID
+					_ = s.Hub.Publish(ctx, tx, wsID, &room, "task.updated", api)
+				}
+			}
+		}
+	}
+	return out, nil
+}

@@ -69,7 +69,20 @@ func questionPremise(ctx context.Context, tx pgx.Tx, author Author, th thread, p
 		return q, nil
 	}
 	q.fromAgent = true
-	q.blockedThread = th.RootKind == "blocked_q"
+	// PRD FR-3.8 2 ①: only the DELEGATOR's reply in a blocked_q thread is the
+	// answer that re-enters the child (#400 리뷰 400a NN1). Anyone else who
+	// mentions an agent there asks a question like anywhere else — a passer-by
+	// must not re-open another agent's card lane.
+	if th.RootKind == "blocked_q" && author.AgentID != nil && th.RootLane != uuid.Nil {
+		var deleg *uuid.UUID
+		err := tx.QueryRow(ctx, `
+			SELECT d.agent_id FROM lane l JOIN task d ON d.id = l.delegated_from_task_id
+			WHERE l.id = $1`, th.RootLane).Scan(&deleg)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return q, err
+		}
+		q.blockedThread = deleg != nil && *deleg == *author.AgentID
+	}
 	var kind string
 	var asker *uuid.UUID
 	var askerName *string

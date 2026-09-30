@@ -228,7 +228,9 @@ func Classify(in SpeechInput) SpeechOut {
 		return SpeechOut{Speech: string(gen.MessageSpeechSummary), Addressees: empty}
 	}
 	parentAuthor := authorAsAddressee(in.ParentAuthorType, in.ParentAuthorID, in.ParentAuthorName)
-	if in.ParentKind == "blocked_q" {
+	// A blocked_q thread reply is the answer — unless the router says its
+	// mentions ask (a non-delegator there asks a question, PRD FR-3.8 2 ①).
+	if in.ParentKind == "blocked_q" && !in.MentionAsks {
 		to := []Addressee{}
 		if parentAuthor != nil && (in.AuthorID == nil || *parentAuthor.ID != *in.AuthorID) {
 			to = appendUniq(to, *parentAuthor)
