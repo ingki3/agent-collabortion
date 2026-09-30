@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -812,5 +813,80 @@ func TestArtifactGetFetchesCliContextOnlyForTheGate(t *testing.T) {
 	}
 	if n := count(s2); n != 0 {
 		t.Fatalf("/cli/context fetched %d times with COLAB_ALLOWED_COMMANDS set, want 0", n)
+	}
+}
+
+// #400 리뷰 400b NN5: a context whose card_id is "" is not a card task —
+// nothing is sent (no POST /cards//result).
+// 주입: CardReport 의 `*cc.CardID == ""` 가드를 빼면 FAIL.
+func TestCardReportEmptyCardID(t *testing.T) {
+	s := clienttest.New(t)
+	s.EmptyCardID = true
+	result := map[string]any{"summary": "done", "verdicts": []any{map[string]any{"criterion": 1, "verdict": "met"}}, "confirmed": []any{"ran"}, "assumed": []any{}}
+	_, err := colab.CardReport(context.Background(), newClient(t, s), colab.CardReportArgs{Result: result})
+	if e := client.AsError(err); e == nil || e.Code != "not_card_task" || e.Exit != client.ExitRefused {
+		t.Fatalf("err = %+v", e)
+	}
+	if len(s.CardCalls) != 0 {
+		t.Fatalf("sent %d card calls with an empty card id", len(s.CardCalls))
+	}
+}
+
+// colab-cli v0.9.10 §2: `status set done` on a card task with no result is
+// exit 3 result_card_required with the contract's sentence.
+func TestStatusSetDoneNeedsResultCard(t *testing.T) {
+	s := clienttest.New(t)
+	s.ResultCardRequired = true
+	_, err := colab.StatusSet(context.Background(), newClient(t, s), colab.StatusSetArgs{Status: "done"})
+	e := client.AsError(err)
+	if e == nil || e.Exit != client.ExitRefused || e.Code != "result_card_required" || e.Detail != colab.ResultCardRequiredSentence {
+		t.Fatalf("err = %+v", e)
+	}
+}
+
+// #400 리뷰 400b NN1 (C3): the CLI's card sentences are colab-cli.md's,
+// read out of the contract — not compared with themselves.
+func TestCardSentencesAreTheContracts(t *testing.T) {
+	raw, err := os.ReadFile("../../../contracts/colab-cli.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(raw)
+	for _, c := range []struct{ what, re, code string }{
+		{"card_required", "`3 card_required` — 「([^」]*)」", colab.CardRequiredSentence},
+		{"result_card_required", "`409 result_card_required` → `3` \\+ 「([^」]*)」", colab.ResultCardRequiredSentence},
+	} {
+		m := regexp.MustCompile(c.re).FindStringSubmatch(doc)
+		if m == nil {
+			t.Fatalf("colab-cli.md: the %s sentence is not where this test expects it", c.what)
+		}
+		if m[1] != c.code {
+			t.Errorf("%s: contract %q, CLI %q", c.what, m[1], c.code)
+		}
+	}
+}
+
+// #400 리뷰 400b NN7: the fake server answers card_required and
+// result_card_required with openapi v0.3.10's sentences (the real server's).
+func TestFakeServerCardSentencesAreOpenapis(t *testing.T) {
+	raw, err := os.ReadFile("../../../contracts/openapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.ReadFile("../client/clienttest/p2.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ code, re string }{
+		{"card_required", "422 card_required`, 사람 말 사유 「([^」]*)」"},
+		{"result_card_required", "409 result_card_required`\\(사람 말 「([^」]*)」"},
+	} {
+		m := regexp.MustCompile(c.re).FindStringSubmatch(string(raw))
+		if m == nil {
+			t.Fatalf("openapi.yaml: %s sentence not found", c.code)
+		}
+		if !strings.Contains(string(src), `"`+c.code+`", `) || !strings.Contains(string(src), `"`+m[1]+`"`) {
+			t.Errorf("fake server %s sentence is not openapi's %q", c.code, m[1])
+		}
 	}
 }

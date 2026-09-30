@@ -80,6 +80,12 @@ func StatusSet(ctx context.Context, c *client.Client, a StatusSetArgs) (*StatusS
 	}
 	res, err := c.SetTaskStatus(ctx, tid, client.TaskStatusCreate{Status: status, Note: a.Note})
 	if err != nil {
+		// colab-cli v0.9.10 §2: a card task's `done` without its result card
+		// is exit 3 with the contract's sentence (the next command to run),
+		// not the server's shorter one.
+		if e := client.AsError(err); e != nil && e.Code == "result_card_required" {
+			e.Detail = ResultCardRequiredSentence
+		}
 		return nil, err
 	}
 	return &StatusSetResult{

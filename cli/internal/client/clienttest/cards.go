@@ -27,6 +27,10 @@ type cardState struct {
 	// QuestionTask makes getCliContext answer a question task (task_kind
 	// question, no card) — T-CARD-S, colab-cli v0.9.10 §2.5.
 	QuestionTask bool
+	// EmptyCardID makes getCliContext answer a card task whose card_id is
+	// the empty string — a malformed context the CLI must not send as
+	// POST /cards//result (#400 리뷰 400b NN5).
+	EmptyCardID bool
 	// DowngradeNotice is submitCardResult's notice.
 	DowngradeNotice string
 	CardCalls       []CardCall

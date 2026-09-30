@@ -18,6 +18,10 @@ import (
 	"github.com/ingki3/agent-collabortion/cli/internal/client"
 )
 
+// ResultCardRequiredSentence is colab-cli v0.9.10 §2's exit 3 sentence for
+// `status set done` on a card task with no result card yet.
+const ResultCardRequiredSentence = "먼저 결과 카드를 내세요: colab card report --file <result.json>"
+
 // CardRequiredSentence is colab-cli v0.9.10's refusal of the old
 // `lane delegate` — never sent to the server.
 const CardRequiredSentence = "위임은 카드로 합니다: colab card delegate --file <card.json> (목표·완료 기준과 확인 방법·하지 않을 것)"

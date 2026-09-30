@@ -63,6 +63,9 @@ type p2State struct {
 	// BlockedQuestionID is the question card setTaskStatus reports for
 	// `blocked` (E3-05). Empty means the server posted none.
 	BlockedQuestionID string
+	// ResultCardRequired makes setTaskStatus `done` answer openapi v0.3.10's
+	// 409 result_card_required (a card task with no result card yet).
+	ResultCardRequired bool
 	// TurnEndOnWorking forces turn_end_required on `working` too, so a test
 	// can prove the CLI reports the server's value rather than its own guess.
 	TurnEndOnWorking bool
@@ -193,6 +196,10 @@ func (s *Server) handleP2(w http.ResponseWriter, r *http.Request, path string) b
 		}
 		if status == "blocked" && strings.TrimSpace(note) == "" {
 			s.problem(w, 422, "validation_failed", "Validation failed", "note is required for blocked")
+			return true
+		}
+		if status == "done" && s.ResultCardRequired {
+			s.problem(w, 409, "result_card_required", "Result card required", "먼저 결과 카드를 내세요 — colab card report")
 			return true
 		}
 		s.StatusCalls = append(s.StatusCalls, StatusCall{TaskID: taskID, Body: body})
