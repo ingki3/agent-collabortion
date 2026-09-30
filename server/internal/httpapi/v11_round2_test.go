@@ -52,8 +52,9 @@ func TestV11EmptyTurnMessageClauseAlone(t *testing.T) {
 // its row on the feed, reads included.
 func TestCommandVerbsComplete(t *testing.T) {
 	all := roles.All()
-	if len(all) != 16 {
-		t.Fatalf("roles.All = %d commands, want the 16 of colab-cli.md §2.5", len(all))
+	// v0.9.10: lane_delegate → card_delegate, + card_report/accept/revise/get/list.
+	if len(all) != 21 {
+		t.Fatalf("roles.All = %d commands, want the 21 of colab-cli.md §2.5", len(all))
 	}
 	for _, cmd := range all {
 		verb, ok := commandVerbs[cmd]

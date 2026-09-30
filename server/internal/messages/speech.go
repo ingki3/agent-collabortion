@@ -116,8 +116,11 @@ const UpstreamMaxSteps = 5
 // 「보고를 받은 뒤의 말」(v0.19.8). A body mention chip inside someone's
 // report does not make its reader an addressee (review #343 블로커 1).
 func wokenByReportTo(in SpeechInput) bool {
+	// PRD FR-3.8 2: an answer from a question turn returns to the asker the
+	// way a report does (Lead 판정 Q2 — the asker goes back to its own work),
+	// so what the asker says next is 「보고를 받은 뒤의 말」 too.
 	return in.TriggerMessageID != nil && in.AuthorID != nil &&
-		in.TriggerSpeech == string(gen.MessageSpeechReport) &&
+		(in.TriggerSpeech == string(gen.MessageSpeechReport) || in.TriggerSpeech == string(gen.MessageSpeechAnswer)) &&
 		contains(in.TriggerAddressees, Addressee{Kind: "agent", ID: in.AuthorID})
 }
 
@@ -370,7 +373,10 @@ func walkUpstream(ctx context.Context, q db.DBTX, in *SpeechInput) error {
 		err := q.QueryRow(ctx, `
 			SELECT u.id, u.author_type::text, u.author_id, COALESCE(uu.display_name, ua.name, ''), COALESCE(u.speech, '')
 			FROM message c
-			JOIN message r ON r.id = c.responds_to_message_id AND r.author_type = 'agent'
+			-- a report names what it answers (responds_to); an answer from a
+			-- question turn answers that turn's trigger (the question).
+			LEFT JOIN task qt ON c.speech = 'answer' AND qt.id = c.source_task_id AND qt.kind = 'question'
+			JOIN message r ON r.id = COALESCE(c.responds_to_message_id, qt.trigger_message_id) AND r.author_type = 'agent'
 			JOIN task t ON t.id = r.source_task_id
 			JOIN message u ON u.id = t.trigger_message_id
 			LEFT JOIN app_user uu ON u.author_type = 'user' AND uu.id = u.author_id
@@ -386,7 +392,7 @@ func walkUpstream(ctx context.Context, q db.DBTX, in *SpeechInput) error {
 		if upType == "system" || upAuthor == nil || *upAuthor == *in.AuthorID {
 			return nil
 		}
-		if upSpeech == string(gen.MessageSpeechReport) {
+		if upSpeech == string(gen.MessageSpeechReport) || upSpeech == string(gen.MessageSpeechAnswer) {
 			cur = *up
 			continue
 		}

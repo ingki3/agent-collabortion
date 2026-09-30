@@ -186,9 +186,15 @@ func TestS78F1SequenceStaysUnderChainDepth(t *testing.T) {
 	lead = f.run(t, f.queuedTask(t, f.lead))
 	// 멘션 1: Lead asks the reviewer.
 	review := f.run(t, f.mention(t, f.leadUUID, lead, "QA", f.qaUUID))
-	// 재진입 1: the reviewer's lane ends → "요청하신 작업이 끝났습니다" wakes Lead.
-	f.done(t, review)
-	lead = f.run(t, f.queuedTask(t, f.lead))
+	// 재진입 1 → v0.19.15 FR-3.8 2: the mention asked the reviewer a
+	// QUESTION, so its lane does not end; the reviewer's answer to Lead is the
+	// return (like a report — Lead 판정 Q2) and wakes Lead.
+	_, by := f.postFrom(t, f.qaUUID, review, router.MentionLink("Lead", f.leadUUID)+" 검토 끝, 문제 없음")
+	next, ok := by[f.leadUUID]
+	if !ok {
+		t.Fatalf("the reviewer's answer did not wake Lead: %+v", by)
+	}
+	lead = f.run(t, next)
 	// 위임 1 + 합류 1.
 	r2 := f.delegate(t, lead, f.rUUID)
 	f.done(t, r2)

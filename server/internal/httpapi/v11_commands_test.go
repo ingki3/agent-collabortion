@@ -74,6 +74,23 @@ func (f *p2Fixture) cmdOp(t *testing.T, tok string, taskID uuid.UUID, cmd gen.Co
 		// current_room — the operation's business, not the table's.
 		st, out, _ := c.do("GET", f.p+"/cli/rooms/"+f.sessionID+"/read", nil)
 		return st, out
+	// v0.9.10 card commands — a random card id: past the gate it is the
+	// operation's 404 card, never command_not_allowed.
+	case gen.ColabCommandCardList:
+		st, out, _ := c.do("GET", sess+"/cards", nil)
+		return st, out
+	case gen.ColabCommandCardGet:
+		st, out, _ := c.do("GET", f.p+"/cards/"+uuid.NewString(), nil)
+		return st, out
+	case gen.ColabCommandCardReport:
+		st, out, _ := c.do("POST", f.p+"/cards/"+uuid.NewString()+"/result", map[string]any{"summary": "s", "verdicts": []any{}, "confirmed": []string{"x"}, "assumed": []string{}}, key()...)
+		return st, out
+	case gen.ColabCommandCardAccept:
+		st, out, _ := c.do("POST", f.p+"/cards/"+uuid.NewString()+"/accept", map[string]any{}, key()...)
+		return st, out
+	case gen.ColabCommandCardRevise:
+		st, out, _ := c.do("POST", f.p+"/cards/"+uuid.NewString()+"/revise", map[string]any{"reason": "모자람"}, key()...)
+		return st, out
 	case gen.ColabCommandWorkPropose:
 		st, out, _ := c.do("POST", f.p+"/rooms/"+f.sessionID+"/work-proposals", map[string]any{"goal": "새 미션", "rationale": "근거"}, key()...)
 		return st, out

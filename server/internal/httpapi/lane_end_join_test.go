@@ -202,6 +202,10 @@ func TestLaneEndJoinSiblingsRace(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		f := newP2Fixture(t)
 		leadTask, c1, c2 := f.twoChildren(t)
+		// T-CARD-S: both children reported their cards (the card gate on a
+		// turn end without a result is cards_gate_test.go's).
+		f.report(t, c1)
+		f.report(t, c2)
 		var wg sync.WaitGroup
 		errs := make(chan error, 2)
 		for _, c := range []uuid.UUID{c1, c2} {

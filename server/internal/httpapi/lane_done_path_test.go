@@ -136,6 +136,15 @@ func (f *p2Fixture) agentTriggered(t *testing.T) (rTask, rLane uuid.UUID) {
 		t.Fatalf("triggers = %v, want R", res.Triggers)
 	}
 	rTask, rLane = uuid.UUID(res.Triggers[0].TaskId), uuid.UUID(res.Triggers[0].LaneId)
+	// v0.19.15 FR-3.8 2: a bare agent mention now makes a QUESTION task,
+	// which never ends or re-enters its lane (questionTurnEnd pins that).
+	// The agent-authored triggers that still re-enter a lane as a normal
+	// task are Lead 판정 Q1·Q2 (the delegator's reply in a blocked_q thread,
+	// the asker's turn an answer woke) — this helper stands in for them by
+	// making the task normal, so the re-entry-notice paths stay pinned.
+	if _, err := f.pool.Exec(t.Context(), `UPDATE task SET kind = 'normal' WHERE id = $1`, rTask); err != nil {
+		t.Fatal(err)
+	}
 	f.runTask(t, rTask)
 	return
 }
