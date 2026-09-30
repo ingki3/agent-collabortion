@@ -43,13 +43,14 @@ RUNTIME_ID="$(runtime_of_config "$CFG")"
 
 # Lead 대본: 첫 턴은 두 자식에게 위임, 그 뒤의 턴(합류)은 JOIN-SEEN 한 줄. 턴 수는 파일로 센다.
 lead_script() { # NAME CHILD1 CHILD2
-  jq -nc --arg o "$OUT" --arg n "$1" --arg a "$2" --arg b "$3" '{turns:[{steps:[{exec:(
+  jq -nc --arg o "$OUT" --arg n "$1" --arg a "$2" --arg b "$3" --arg fx "$FIX" '{turns:[{steps:[{exec:(
     "c=$(cat " + $o + "/100-" + $n + "-turns.txt 2>/dev/null || echo 0); echo $((c+1)) > " + $o + "/100-" + $n + "-turns.txt; "
-    + "if [ \"$c\" = 0 ]; then colab lane delegate --agent " + $a + " --brief \"A 조사\" >/dev/null && colab lane delegate --agent " + $b + " --brief \"B 조사\" >/dev/null; "
+    + "if [ \"$c\" = 0 ]; then bash " + $fx + "/card.sh delegate " + $a + " \"A 조사\" >/dev/null && bash " + $fx + "/card.sh delegate " + $b + " \"B 조사\" >/dev/null; "
     + "else colab message post --body \"JOIN-SEEN " + $n + "\" >/dev/null; fi"), exec_timeout_ms:60000}]}]}'
 }
-DONE_SCRIPT="$(jq -nc '{turns:[{steps:[{exec:"colab message post --body \"ALPHA 결과\" >/dev/null && colab status set done >/dev/null", exec_timeout_ms:60000}]}]}')"
-TURN_END_SCRIPT="$(jq -nc '{turns:[{steps:[{exec:"sleep 6 && colab message post --body \"BETA 결과\" >/dev/null", exec_timeout_ms:60000}]}]}')"
+# T-CARD-S: 카드로 받은 일은 결과 카드를 내고 끝낸다(Alpha 는 결과 카드 + status set done, Beta 는 결과 카드 + 턴 종료만).
+DONE_SCRIPT="$(jq -nc --arg fx "$FIX" '{turns:[{steps:[{exec:("colab message post --body \"ALPHA 결과\" >/dev/null && bash " + $fx + "/card.sh report >/dev/null && colab status set done >/dev/null"), exec_timeout_ms:60000}]}]}')"
+TURN_END_SCRIPT="$(jq -nc --arg fx "$FIX" '{turns:[{steps:[{exec:("sleep 6 && colab message post --body \"BETA 결과\" >/dev/null && bash " + $fx + "/card.sh report >/dev/null"), exec_timeout_ms:60000}]}]}')"
 SLOW_SCRIPT="$(jq -nc '{turns:[{steps:[{sleep_ms:40000},{chunk:"late"}]}]}')"
 
 bundles() { psqlq "select count(*) from message where session_id='$1' and author_type='system' and content like '%위임한 작업이 모두 끝났습니다%'"; }
