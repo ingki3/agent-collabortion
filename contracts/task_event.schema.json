@@ -69,7 +69,8 @@
         "submit_artifact",
         "record_decision",
         "hitl",
-        "review"
+        "review",
+        "card"
       ]
     },
     "object_ref": {
