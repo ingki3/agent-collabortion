@@ -3,7 +3,8 @@
 #   source 하면 delegate_card · report_card 함수, 실행하면 `card.sh delegate NAME GOAL [METHOD]` ·
 #   `card.sh report [met|partial|unmet]` (ACPFAKE_PROMPT 의 <task_card> 를 읽는다).
 #   log 함수가 없으면(인라인 exec) 조용히 넘어간다.
-type log >/dev/null 2>&1 || log() { :; }
+# `type log` 는 macOS 의 /usr/bin/log 를 찾아 참이 된다(그 log 는 실패해 `&& colab status set done` 을 끊었다) — 함수만 본다.
+declare -F log >/dev/null 2>&1 || log() { :; }
 P="${P:-${ACPFAKE_PROMPT:-}}"
 # delegate_card NAME GOAL [METHOD] — 카드 파일을 써서 `colab card delegate --file`.
 delegate_card() {
@@ -24,6 +25,7 @@ report_card() {
     '{summary:"맡은 일을 했습니다.", verdicts:[range(1;$n+1) | {criterion:., verdict:$v, evidence:(if $v=="met" then [{kind:"commit",ref:"e2e0000"}] else [] end), note:(if $v=="met" then null else "모자란 부분이 있습니다" end)}], confirmed:["대본이 확인"], assumed:[]}' > "$f"
   out="$(colab card report --file "$f" 2>&1)"; rm -f "$f"
   log "card report → $(printf '%s' "$out" | tr -d '\n' | cut -c1-160)"
+  return 0
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then

@@ -114,7 +114,7 @@ chk B.1 201 "$(api_code <<<"$R_")" "Lead(lead) 의 card delegate → 201 (v0.3.1
 finish_turn "$T_LEAD"
 IFS=$'\t' read -r T_W TT_W AC_W <<<"$(run_turn "$S" "$W")"
 chk B.2 201 "$(tok_api "$TT_W" POST "/rooms/$S/messages" '{"content":"안녕하세요"}' | api_code)" "W(writer) 의 message post → 201"
-chk B.2a 200 "$(report_with "$TT_W")" "W 의 결과 카드(카드 task — 결과 없이 턴을 끝내면 카드 게이트가 후속을 건다)"
+chk B.2a 201 "$(report_with "$TT_W")" "W 의 결과 카드(카드 task — 결과 없이 턴을 끝내면 카드 게이트가 후속을 건다)"
 finish_turn "$T_W"
 obs | jq . > "$OUT/81-obs-session.json"
 # T-FIX-B(#396): W 는 위임 자식이고 `status set done` 없이 finish 로 턴을 끝낸다. 옛 기대값은 이 턴 종료가 합류를

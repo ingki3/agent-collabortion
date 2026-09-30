@@ -130,10 +130,11 @@ chk A4b "규칙 8: 합류 전 Researcher 멘션은 Lead task 를 만들지 않�
             where t.session_id='$SESSION' and t.agent_id='$LEAD' and a.name='Researcher' and m.created_at < (select join_fired_at from task where id='$J1_TASK')")"
 JOIN_TASK="$(psqlq "select t.id from task t join message m on m.id=t.trigger_message_id where t.session_id='$SESSION' and t.agent_id='$LEAD' and m.author_type='system' and m.content like '위임한 작업이 모두 끝났습니다%' order by t.created_at limit 1")"
 psqlq "select left(replace(regexp_replace(m.content, '^(\[@[^]]*\]\([^)]*\)[[:space:]]*)+', ''), E'\n','⏎'),60) from message m join agent a on a.id=m.author_id
-       where m.session_id='$SESSION' and a.name='Researcher' and m.created_at < (select join_fired_at from task where id='$J1_TASK') order by m.created_at" > "$OUT/72-child-msgs.txt"
+       where m.session_id='$SESSION' and a.name='Researcher' and m.card_role is null and m.created_at < (select join_fired_at from task where id='$J1_TASK') order by m.created_at" > "$OUT/72-child-msgs.txt"
 tap_prompt "$TAP" "$JOIN_TASK" 1 > "$OUT/72-join-prompt.txt" 2>/dev/null || true
 CARRIED=0
 while IFS= read -r frag; do [ -n "$frag" ] || continue; key="$(printf '%s' "$frag" | sed 's/⏎.*//')"; grep -qF -e "$key" "$OUT/72-join-prompt.txt" && CARRIED=$((CARRIED+1)); done < "$OUT/72-child-msgs.txt"
+# T-CARD-S: 결과 카드 말풍선(card_role result)은 <result_cards> 가 싣는다 — 여기서는 자식의 보통 메시지만 센다.
 chk A4c "합류 턴 프롬프트가 자식 메시지 3개를 싣는다 (E1-21)" 3 "$CARRIED"
 chk_has A4d "합류 프롬프트의 trigger 가 합류 시스템 메시지다" "$OUT/72-join-prompt.txt" "위임한 작업이 모두 끝났습니다"
 chk A5 "Writer 가 아티팩트를 제출했다" yes "$( [ -n "$ART_ID" ] && echo yes || echo no )"

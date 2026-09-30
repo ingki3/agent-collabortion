@@ -47,6 +47,9 @@ claim() { daemon_api "runtimes/$RID/claim" '{"capacity":10,"wait_ms":0}'; }
 as() { local c="$1"; shift; COOKIE="$c" api "$@"; }
 # T-CARD-S(openapi v0.3.10): 위임 본문은 카드 — card_body AGENT_ID GOAL
 card_body() { jq -nc --arg a "$1" --arg g "$2" '{card:{agent_id:$a,goal:$g,criteria:[{text:($g+" — 결과를 보고한다"),method:"review"}],boundaries:"맡은 것 밖은 건드리지 않는다"}}'; }
+# report_card_api TOKEN → 그 카드 task 의 결과 카드(기준 1 met) 응답 코드
+report_card_api() { local c; c="$(tok_api "$1" GET /cli/context | api_body | jq -r '.card_id // empty')"
+  tok_api "$1" POST "/cards/$c/result" '{"summary":"했습니다","verdicts":[{"criterion":1,"verdict":"met","evidence":[{"kind":"commit","ref":"e2e0000"}]}],"confirmed":["확인"],"assumed":[]}' | api_code; }
 tok_api() { # TOKEN METHOD PATH [JSON] → 본문 + 마지막 줄 코드
   local tok="$1" method="$2" path="$3" body="${4:-}"
   if [ -n "$body" ]; then
@@ -213,6 +216,8 @@ IFS=$'\t' read -r ATQ TOKQ <<<"$(take "$TQ")"
 chk E.6 200 "$(read_code "$TOKQ" "$D")" "질문 기상 턴이 참고를 읽는다"
 finish "$TQ" "$ATQ"
 
+# T-CARD-S: 카드 task 의 done 앞에는 결과 카드(없으면 409 result_card_required).
+chk E.7a 201 "$(report_card_api "$TOKW")" "W: 결과 카드"
 chk E.7 200 "$(tok_api "$TOKW" POST "/tasks/$TW/status" '{"status":"done"}' | api_code)" "W: status done → 합류(R 은 blocked = 끝남)"
 TJ="$(queued_task "$A" "$LEAD")"
 chk E.8 "yes/$SEOYEON" "$( [ -n "$TJ" ] && [ "$TJ" != "$TQ" ] && echo yes || echo no )/$(orig_of "$TJ")" "합류 기상 task — 새 task, 서연 승계(status.go 합류 INSERT)"
@@ -262,6 +267,7 @@ TNW="$(api_body <<<"$LN" | jq -r .task.id)"
 chk F.4 "NULL" "$(orig_of "$TNW")" "위임 자식도 없다"
 finish "$TN" "$ATN"
 IFS=$'\t' read -r ATNW TOKNW <<<"$(take "$TNW")"
+report_card_api "$TOKNW" >/dev/null
 tok_api "$TOKNW" POST "/tasks/$TNW/status" '{"status":"done"}' >/dev/null
 TNJ="$(queued_task "$A" "$LEAD")"
 chk F.5 "NULL" "$(orig_of "$TNJ")" "합류 기상 task 도 NULL — 방장·Director(서연)로 대체하지 않는다"

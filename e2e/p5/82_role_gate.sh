@@ -282,7 +282,10 @@ lanes_dump final
 chk Q1 "(f) R·RH·C done → []" "done:/done:/done:" "$(lane_actions final R)/$(lane_actions final RH)/$(lane_actions final C)"
 IDLE_N="$(psqlq "select count(*) from task t join agent a on a.id=t.agent_id where t.session_id='$S' and a.name='Idle' and t.status='completed'")"
 DONE_N="$(psqlq "select count(*) from task_attempt ta join task t on t.id=ta.task_id where t.session_id='$S' and ta.outcome='completed'")"
-chk Q2 "(e) Idle 의 완료 턴 3(Lead 토큰·C 대본·C 토큰) 마다 빈 턴 카드 정확히 1행" "3/$IDLE_N" "$IDLE_N/$(empty_cards "$S")"
+# T-CARD-S: Idle 은 카드 셋을 받았다 — 빈 턴마다 카드 게이트가 result_card_missing 후속(판당 2)을 걸어 완료 턴 = 3 × 3 = 9,
+# 그 뒤 자동 결과 카드로 lane 이 끝난다. 빈 턴 카드는 여전히 완료 턴마다 정확히 1행.
+chk Q2 "(e) Idle 의 완료 턴 9(카드 3 × (첫 턴 + 후속 2)) 마다 빈 턴 카드 정확히 1행" "9/$IDLE_N" "$IDLE_N/$(empty_cards "$S")"
+chk Q2b "(e) Idle 의 카드 셋은 자동 결과로 끝났다(result_submitted)" 3 "$(psqlq "select count(*) from task_card c join agent a on a.id=c.assignee_agent_id where c.room_id='$S' and a.name='Idle' and c.status='result_submitted' and c.result->>'auto'='true'")"
 chk Q3 "(e) 게이트 턴(Lead·R·RH·C)에는 빈 턴 카드 없음 — message post 를 했다" 0 "$(psqlq "select count(*) from task_event e where e.task_id in ('$T_LEAD','$T_R','$T_RH','$T_C') and e.class='status' and e.verb='turn_end' and e.object_ref=to_jsonb('empty_turn'::text)")"
 api_ok GET "/workspaces/$WS/observations" > "$OUT/82-obs.json"
 chk O1 "관찰 5행 §11 순서" "chain_scale,chain_depth,join_breadth,routing_concentration,empty_turn_rate" "$(jq -r '[.rows[].key]|join(",")' "$OUT/82-obs.json")"
