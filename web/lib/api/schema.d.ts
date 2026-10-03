@@ -1043,7 +1043,7 @@ export interface paths {
         /**
          * 결과 수락(`colab card accept`)
          * @description 권한: `TaskToken`(카드의 **위임자** 에이전트의 task, 같은 방) · 미션 Director·deputy(미션 밖 카드면 방장·부방장). 그 밖 `403 not_card_judge`.
-         *     v0.3.10 (PRD FR-3.8 4). `result_submitted` 에서만(`409 card_not_judgeable`). 카드 `accepted`, `judgement` 기록, 결과 카드 말풍선 판정 줄 갱신(`message.updated`)·`card.updated`. 결정 기록은 만들지 않는다.
+         *     v0.3.11 (PRD FR-3.8 4, Director 결정 2026-10-03). `result_submitted` 에서만(`409 card_not_judgeable`). **`comment` 필수** — 무엇을 확인했고 왜 됐다고 보는지 한두 문장(비거나 공백만이면 `422 judgement_comment_required`). 카드 `accepted`, `judgement`(`comment` 포함) 기록, 결과 카드 말풍선 판정 줄 갱신(`message.updated` — 「수락 · 〈이름〉 〈시각〉 — 〈comment〉」)·`card.updated`. 결정 기록은 만들지 않는다.
          */
         post: operations["acceptCard"];
         delete?: never;
@@ -3858,7 +3858,10 @@ export interface components {
             };
             /** Format: date-time */
             at: string;
+            /** @description `action: revise_requested` 의 사유. */
             reason?: string | null;
+            /** @description v0.3.11 — `action: accepted` 의 코멘트(필수 입력, PRD FR-3.8 4). `revise_requested` 는 null — 사유는 `reason`. */
+            comment?: string | null;
         };
         /** @description v0.3.10 — 위임 카드와 그 결과(PRD FR-3.8). 번호는 미션 안에서(미션 밖 위임이면 방 안에서) 1부터. 판(`version`)은 수정 요청마다 +1 — 지난 판은 `versions`(getCard 만). */
         TaskCard: {
@@ -7010,7 +7013,13 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    comment: string;
+                };
+            };
+        };
         responses: {
             /** @description 카드. */
             200: {
@@ -7024,6 +7033,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
             default: components["responses"]["Problem"];
         };
     };
