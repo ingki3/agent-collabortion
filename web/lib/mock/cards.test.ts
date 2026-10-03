@@ -131,17 +131,19 @@ describe("작업 카드 목 — seed-cards · op 다섯", () => {
   // (errors[] 같은 모양) · 카드는 그대로 판정 대기 · 통과하면 trim 해 judgement.comment 에, reason 은 null. 시드 C-1 수락에도 코멘트.
   it("수락 코멘트 — 없음·빈·공백만 422 judgement_comment_required · 600자 넘으면 422 · 통과하면 judgement.comment", async () => {
     const id = seed.cards["C-3"];
-    for (const body of [undefined, {}, { comment: "" }, { comment: "  \n " }]) {
+    for (const body of [undefined, {}, { comment: "" }, { comment: "  \n " }, { comment: "\u200b\ufeff\u2060\u3164 \u200b" }]) {
       const r = await call("POST", `/cards/${id}/accept`, body);
       expect(r.status).toBe(422);
       expect(r.body.code).toBe("judgement_comment_required");
       expect(r.body.errors).toEqual([{ field: "comment", code: "judgement_comment_required", message: "무엇을 확인했는지 코멘트를 적으세요" }]);
     }
     expect((await call("POST", `/cards/${id}/accept`, { comment: "가".repeat(601) })).status).toBe(422);
+    // #406 리뷰 NN5 — 한도는 글자 수(바이트 아님): 4바이트 이모지 601개도 422, 한글 600자(1800바이트)는 통과.
+    expect((await call("POST", `/cards/${id}/accept`, { comment: "👍".repeat(601) })).status).toBe(422);
     expect((await call("GET", `/cards/${id}`)).body.status).toBe("result_submitted");
-    const ok = await call("POST", `/cards/${id}/accept`, { comment: "  기준 1·2 는 로그로, 3 은 화면으로 확인  " });
+    const ok = await call("POST", `/cards/${id}/accept`, { comment: "\u200b" + "가".repeat(600) + "  " });
     expect(ok.status).toBe(200);
-    expect(ok.body.judgement).toMatchObject({ action: "accepted", comment: "기준 1·2 는 로그로, 3 은 화면으로 확인", reason: null });
+    expect(ok.body.judgement).toMatchObject({ action: "accepted", comment: "가".repeat(600), reason: null });
     const c1 = (await call("GET", `/cards/${seed.cards["C-1"]}`)).body as TaskCard;
     expect(c1.judgement).toMatchObject({ action: "accepted", comment: "표의 5종과 출처 링크를 열어 확인했습니다", reason: null });
     // 수정 요청은 영향 없음 — 사유만, comment 는 null.

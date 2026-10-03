@@ -19,8 +19,8 @@ import "./task-card.css";
 import { MessageCard, authorName, type ConversationSlot } from "./MessageCard";
 import { Badge } from "./Badge";
 import { Slot } from "./Slot";
-import { clockTime } from "@/lib/time";
-import { cardNeed, cardVersion, goalExcerpt, judgeOf, metCount, type CachedCard, type CardVersionView } from "@/lib/cards";
+import { hhmm } from "@/lib/inbox-v19";
+import { cardNeed, cardVersion, goalExcerpt, judgeOf, metCount, visibleText, type CachedCard, type CardVersionView } from "@/lib/cards";
 import { TASK_CARD as L } from "@/lib/wording";
 import type { CardAction, CardEvidence, CardRef, Message, TaskCard } from "@/lib/api/types";
 import type { TimelineCtx } from "./TimelineItemView";
@@ -146,7 +146,9 @@ function ReasonForm({ kind, card, ctx, onClose }: { kind: Ask; card: TaskCard; c
   const [busy, setBusy] = useState(false);
   const id = useId();
   const accept = kind === "accept";
-  const blank = !text.trim();
+  // 수락 코멘트는 서버와 같은 「보이는 글」 규칙(ZWSP·BOM·한글 채움만이면 빈 값 — #406 리뷰 NN1), 사유는 trim.
+  const sent = accept ? visibleText(text) : text.trim();
+  const blank = !sent;
   return (
     <form
       className="tcard__reason"
@@ -157,7 +159,7 @@ function ReasonForm({ kind, card, ctx, onClose }: { kind: Ask; card: TaskCard; c
         if (blank) return setErr(accept ? L.comment_hint : L.reason_required);
         setBusy(true);
         try {
-          await ctx.onCardAction(card, accept ? "accept" : "revise", text.trim());
+          await ctx.onCardAction(card, accept ? "accept" : "revise", sent);
           onClose();
         } catch (x) {
           setErr(x instanceof Error ? x.message : String(x));
@@ -359,7 +361,8 @@ export function ResultCardBubble(props: CardBubbleProps) {
           <span aria-hidden="true" className="tcard__glyph" data-verdict={j.action === "accepted" ? "met" : "partial"}>{j.action === "accepted" ? "✓" : "↺"}</span>
           {j.action === "accepted" ? L.judged_accept : L.judged_revise}
           {j.by.kind === "agent" ? `@${j.by.name}` : j.by.name}
-          {j.action === "accepted" ? ` ${clockTime(j.at)}${j.comment ? ` — ${j.comment}` : ""}` : j.reason ? ` — ${j.reason}` : ""}
+          {/* SCREEN §4.6 판정 줄 「수락 · @Lead 15:58 — 〈코멘트〉」 — 시각은 분까지(HH:MM, inbox 위임 줄과 같은 포맷터). */}
+          {j.action === "accepted" ? ` ${hhmm(j.at)}${j.comment ? ` — ${j.comment}` : ""}` : j.reason ? ` — ${j.reason}` : ""}
           {j.action === "revise_requested" && card.version > view.version && card.delegate_message_id && (
             <>
               {" · "}
