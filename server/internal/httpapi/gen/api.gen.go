@@ -2832,6 +2832,11 @@ type CardJudgement struct {
 		Kind CardJudgementByKind `json:"kind"`
 		Name string              `json:"name"`
 	} `json:"by"`
+
+	// Comment v0.3.11 — `action: accepted` 의 코멘트(필수 입력, PRD FR-3.8 4). `revise_requested` 는 null — 사유는 `reason`.
+	Comment nullable.Nullable[string] `json:"comment,omitempty"`
+
+	// Reason `action: revise_requested` 의 사유.
 	Reason nullable.Nullable[string] `json:"reason,omitempty"`
 }
 
@@ -5417,6 +5422,11 @@ type SignupJSONBody struct {
 	Password    string  `json:"password"`
 }
 
+// AcceptCardJSONBody defines parameters for AcceptCard.
+type AcceptCardJSONBody struct {
+	Comment string `json:"comment"`
+}
+
 // SubmitCardResultParams defines parameters for SubmitCardResult.
 type SubmitCardResultParams struct {
 	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
@@ -6009,6 +6019,9 @@ type LoginJSONRequestBody LoginJSONBody
 
 // SignupJSONRequestBody defines body for Signup for application/json ContentType.
 type SignupJSONRequestBody SignupJSONBody
+
+// AcceptCardJSONRequestBody defines body for AcceptCard for application/json ContentType.
+type AcceptCardJSONRequestBody AcceptCardJSONBody
 
 // SubmitCardResultJSONRequestBody defines body for SubmitCardResult for application/json ContentType.
 type SubmitCardResultJSONRequestBody = CardResultInput
