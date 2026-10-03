@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -233,17 +234,19 @@ func (s *Server) AcceptCard(w http.ResponseWriter, r *http.Request, cardId gen.C
 	writeJSON(w, http.StatusOK, out)
 }
 
-// judgementComment is acceptCard's comment check: trimmed, blank is 422
-// judgement_comment_required (the code rides on the problem and its one
-// field, like the other card 422s), over 600 runes is too_long.
+// judgementComment is acceptCard's comment check: invisible runes trimmed
+// (cards.JudgementText — spaces, ZWSP·BOM·WJ, Hangul fillers), nothing visible
+// left is 422 judgement_comment_required (the code rides on the problem and
+// its one field, like the other card 422s), over 600 characters (runes, not
+// bytes) is too_long.
 func judgementComment(raw string) (string, *Problem) {
-	c := strings.TrimSpace(raw)
-	if c == "" {
+	c, ok := cards.JudgementText(raw)
+	if !ok {
 		p := apperr.Validation(apperr.Field("comment", "judgement_comment_required", cards.JudgementCommentRequiredSentence))
 		p.Code, p.Detail = "judgement_comment_required", cards.JudgementCommentRequiredSentence
 		return "", p
 	}
-	if len([]rune(c)) > cards.JudgementCommentMax {
+	if utf8.RuneCountInString(c) > cards.JudgementCommentMax {
 		return "", apperr.Validation(apperr.Field("comment", "too_long", cards.JudgementCommentTooLongSentence))
 	}
 	return c, nil

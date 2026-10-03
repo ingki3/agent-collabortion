@@ -20,6 +20,7 @@ import type { Req, Res } from "./handlers";
 import type { SpeechPremises } from "./speech";
 import { storeArtifact } from "./media";
 import { CARD_MOCK, CARD_SEED, VALIDATION_DETAIL } from "./wording";
+import { visibleText } from "@/lib/cards";
 
 type Handler = (req: Req, params: Record<string, string>) => Res | Promise<Res>;
 type ProblemCtor = new (status: number, code?: string, detail?: string, extra?: Record<string, unknown>) => Error;
@@ -268,7 +269,7 @@ export function registerCards(ctx: CardsCtx): void {
     const u = requireUser(s, req);
     if (!judgeUser(s, c, u.id)) throw new Problem(403, "not_card_judge", CARD_MOCK.not_card_judge);
     // v0.3.11(PRD FR-3.8 4) — 빈 수락은 서버처럼 422 judgement_comment_required(같은 errors[] 모양).
-    const comment = String(((req.body ?? {}) as { comment?: string }).comment ?? "").trim();
+    const comment = visibleText(String(((req.body ?? {}) as { comment?: string }).comment ?? ""));
     if (!comment) throw new Problem(422, "judgement_comment_required", CARD_MOCK.comment_required, { errors: [{ field: "comment", code: "judgement_comment_required", message: CARD_MOCK.comment_required }] });
     if ([...comment].length > 600) throw new Problem(422, "validation_failed", VALIDATION_DETAIL, { errors: [{ field: "comment", code: "too_long", message: CARD_MOCK.comment_too_long }] });
     accept(s, sess, c, { kind: "user", id: u.id, name: u.display_name }, comment);

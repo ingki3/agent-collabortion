@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -525,7 +526,28 @@ const (
 )
 
 // JudgementCommentMax is acceptCard's comment maxLength (openapi v0.3.11).
+// It counts characters (runes), not bytes — 600 한글 is 1800 bytes and passes.
 const JudgementCommentMax = 600
+
+// invisibleRune is a rune that shows nothing on the judgement line: Unicode
+// spaces, format characters (Cf — ZWSP U+200B, ZWNJ/ZWJ, WJ U+2060, BOM
+// U+FEFF, soft hyphen, bidi marks …), the Hangul fillers (U+115F · U+1160 ·
+// U+3164 · U+FFA0, category Lo but drawn blank) and the blank Braille pattern
+// U+2800. #406 리뷰 NN1: a comment of only these passed the old TrimSpace check.
+func invisibleRune(r rune) bool {
+	switch r {
+	case 0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800:
+		return true
+	}
+	return unicode.IsSpace(r) || unicode.Is(unicode.Cf, r) || unicode.IsControl(r)
+}
+
+// JudgementText trims invisible runes from both ends; ok is false when no
+// visible character is left (judgement_comment_required).
+func JudgementText(raw string) (text string, ok bool) {
+	text = strings.TrimFunc(raw, invisibleRune)
+	return text, text != ""
+}
 
 // ApplyPatch is TaskCardPatch over the card's current version: given fields
 // replace, missing ones keep (the assignee never changes).

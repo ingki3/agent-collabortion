@@ -6,8 +6,22 @@
  * cardsOnFetched 의 older 가드를 빼면 (옛 응답) FAIL(NN2).
  */
 import { describe, expect, it } from "vitest";
-import { actionFits, boardChip, boardOnCard, boardTree, cardNeed, cardVersion, cardsOnFetched, cardsOnUpserted, goalExcerpt, judgeOf, metCount } from "./cards";
+import { actionFits, boardChip, boardOnCard, boardTree, cardNeed, cardVersion, cardsOnFetched, cardsOnUpserted, goalExcerpt, judgeOf, metCount, visibleText } from "./cards";
 import type { CardBoard, CardBoardItem, TaskCard } from "./api/types";
+
+// #406 리뷰 NN1·NN4 — 서버 cards.JudgementText 와 같은 표(server/internal/cards/judgement_text_test.go).
+describe("visibleText — 판정 코멘트의 보이는 글", () => {
+  it("보이지 않는 글자만이면 빈 문자열", () => {
+    for (const s of ["", " \t\n\r\u3000\u00a0", "\u200b\u200b", "\ufeff", "\u2060", "\u200d\u200c", "\u200e\u200f\u202a\u202c", "\u00ad", "\u0085", "\u3164", "\u115f\u1160\uffa0", "\u2800", "\x00\x07\x1b", " \u200b\ufeff\u2060\u3164 \u200b"])
+      expect(visibleText(s), JSON.stringify(s)).toBe("");
+  });
+  it("양 끝만 걷고 안쪽은 둔다", () => {
+    expect(visibleText("\ufeff\u200b 로그 확인 \u2060\u3164")).toBe("로그 확인");
+    expect(visibleText("로그\u200b확인")).toBe("로그\u200b확인");
+    expect(visibleText("\u3164.\u3164")).toBe(".");
+    expect(visibleText("\u200b👍\u200b")).toBe("👍");
+  });
+});
 
 const T0 = "2026-09-30T06:00:00Z";
 export function card(over: Partial<TaskCard> = {}): TaskCard {

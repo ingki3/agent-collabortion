@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -34,7 +35,9 @@ func TestCardAcceptComment(t *testing.T) {
 	for name, body := range map[string]map[string]any{
 		"missing": {},
 		"empty":   {"comment": ""},
-		"blank":   {"comment": "  \n\t "},
+		"blank":   {"comment": "  \n	 "},
+		// #406 리뷰 NN1 — 보이지 않는 글자만(ZWSP·BOM·WJ·한글 채움)도 빈 코멘트다.
+		"invisible": {"comment": "\u200b\ufeff\u2060\u3164 \u200b"},
 	} {
 		st, out, _ := lead.do("POST", accept, body)
 		if st != 422 || str(out, "code") != "judgement_comment_required" {
@@ -53,9 +56,13 @@ func TestCardAcceptComment(t *testing.T) {
 	if c := f.taskCard(t, c1); c.Status != "result_submitted" || c.Judgement != nil {
 		t.Fatalf("after refused accepts: %s %s", c.Status, c.Judgement)
 	}
-	// 600 runes is the bound.
+	// 600 characters is the bound — counted in characters, not bytes (#406 리뷰 NN5):
+	// 601 한글 is 422; 601 four-byte emoji is 422 too.
 	if st, out, _ := lead.do("POST", accept, map[string]any{"comment": strings.Repeat("가", 601)}); st != 422 {
 		t.Fatalf("(too long) %d %v", st, out)
+	}
+	if st, out, _ := lead.do("POST", accept, map[string]any{"comment": strings.Repeat("👍", 601)}); st != 422 {
+		t.Fatalf("(too long emoji) %d %v", st, out)
 	}
 
 	// Revise is not affected: reason only, no comment needed.
@@ -120,5 +127,18 @@ func TestCardAcceptCommentPerson(t *testing.T) {
 	}
 	if by, _ := j["by"].(map[string]any); by["kind"] != "user" || by["name"] != "Dir" {
 		t.Fatalf("(person accept) by = %v", j["by"])
+	}
+
+	// (multibyte-boundary) #406 리뷰 NN5 — the bound is 600 characters, not
+	// bytes: 600 한글 (1800 bytes) wrapped in invisible runes is accepted and
+	// stored whole; a byte-count check would refuse it.
+	full := strings.Repeat("가", 600)
+	accept2 := f.p + "/cards/" + f.taskCard(t, c2).ID.String() + "/accept"
+	st, out, _ = f.api.do("POST", accept2, map[string]any{"comment": "\ufeff" + full + "\u200b"})
+	if st != 200 {
+		t.Fatalf("(multibyte-boundary) 600 한글 → %d %v", st, out)
+	}
+	if j2, _ := out["judgement"].(map[string]any); j2["comment"] != full {
+		t.Fatalf("(multibyte-boundary) stored %d runes", len([]rune(fmt.Sprint(j2["comment"]))))
 	}
 }

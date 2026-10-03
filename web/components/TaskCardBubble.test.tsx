@@ -234,8 +234,8 @@ describe("결과 카드 — 칸 전부 · downgraded · 자동", () => {
     const c = card({ status: "accepted", result: result(), judgement: { action: "accepted", by: { kind: "agent", id: "a1", name: "Lead" }, at: "2026-09-30T06:58:00Z", reason: null, comment: "커브 테스트 로그와 영상을 확인했습니다" } });
     render(<TimelineItemView item={one(resultMsg())} ctx={ctx({ cards: { c3: c } })} />);
     expect(within(screen.getByTestId("card-head")).getByRole("img", { name: "수락" })).toHaveAttribute("data-tone", "done");
-    // 시각은 lib/time clockTime 그대로(다른 줄과 같은 HH:MM:SS) — 코멘트는 「 — 」 뒤.
-    expect(screen.getByTestId("card-judgement")).toHaveTextContent(/^✓수락 · @Lead \d\d:58(:\d\d)? — 커브 테스트 로그와 영상을 확인했습니다$/);
+    // SCREEN §4.6 — 시각은 분까지(「15:58」), 초는 내지 않는다(#406 리뷰 NN3).
+    expect(screen.getByTestId("card-judgement")).toHaveTextContent(/^✓수락 · @Lead \d\d:58 — 커브 테스트 로그와 영상을 확인했습니다$/);
   });
   it("수정 요청 판정 줄 — 「수정 요청 · 형주 — 사유」 + 「새 판 보기」(새 판 위임 카드로)", () => {
     const onJump = vi.fn();
@@ -292,6 +292,9 @@ describe("사람의 되돌리기 — 「⋯」 메뉴는 TaskCard.actions 만 �
     expect(input).toHaveAttribute("maxLength", "600");
     expect(screen.getByTestId("card-reason-send")).toBeDisabled();
     fireEvent.change(input, { target: { value: "   " } });
+    expect(screen.getByTestId("card-reason-send")).toBeDisabled();
+    // #406 리뷰 NN1 — 보이지 않는 글자만(ZWSP·BOM·WJ·한글 채움)도 빈 코멘트.
+    fireEvent.change(input, { target: { value: "\u200b\ufeff\u2060\u3164" } });
     expect(screen.getByTestId("card-reason-send")).toBeDisabled();
     fireEvent.submit(form);
     expect(onCardAction).not.toHaveBeenCalled();

@@ -497,6 +497,9 @@ func versionCostDuration(ctx context.Context, q db.DBTX, r *Row) (*float64, *int
 func Revise(ctx context.Context, tx pgx.Tx, r *Row, d Draft, reason string, byKind string, byID uuid.UUID, byName string, now time.Time) error {
 	snap := snapshot(ctx, tx, r)
 	// The judgement that asked for this version is the old version's last word.
+	// #406 리뷰 NN2(알려진 한계, 스킵): 사람이 수락된 카드를 수락 취소(revise)하면 그 판의
+	// accepted 판정(comment 포함)은 이 revise_requested 판정으로 덮여 versions 에 남지 않는다 —
+	// 판정 이력을 쌓으려면 versions[].judgements 같은 계약 변경이 필요하다.
 	snap["judgement"] = json.RawMessage(judgementJSON("revise_requested", byKind, byID, byName, now, &reason, nil))
 	var versions []any
 	if len(r.Versions) > 0 {

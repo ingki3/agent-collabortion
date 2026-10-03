@@ -75,6 +75,17 @@ export function cardNeed(card: CachedCard | null, view: CardVersionView | null, 
   return null;
 }
 
+/**
+ * 판정 코멘트의 보이는 글 — 서버 `cards.JudgementText`(#406 리뷰 NN1)와 같은 규칙: 양 끝의 공백·형식 문자(ZWSP·ZWJ·WJ·BOM·
+ * 방향 표시·soft hyphen)·제어 문자·한글 채움(U+115F·U+1160·U+3164·U+FFA0)·빈 점자(U+2800)를 걷어 낸다. 남는 게 없으면 "".
+ * (#406 리뷰 NN4: 서버 Go unicode.IsSpace 와 JS \s 의 차이 — U+0085 NEL — 도 \p{Cc} 로 함께 걷힌다.)
+ */
+const INVISIBLE = "[\\s\\p{Cf}\\p{Cc}\\u115F\\u1160\\u3164\\uFFA0\\u2800]";
+const INVISIBLE_EDGES = new RegExp(`^${INVISIBLE}+|${INVISIBLE}+$`, "gu");
+export function visibleText(s: string): string {
+  return s.replace(INVISIBLE_EDGES, "");
+}
+
 /** 결과 카드 머리의 판정 칩 — 판정이 없으면 판정 대기. */
 export function judgeOf(v: Pick<CardVersionView, "judgement">): "pending" | "accepted" | "revise_requested" {
   return v.judgement?.action ?? "pending";
