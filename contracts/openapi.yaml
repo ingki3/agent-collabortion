@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Colab Server API
-  version: 0.3.10-draft
+  version: 0.3.11-draft
   summary: Colab 서버 REST API — P1~P3(수직 슬라이스 · 협업 코어 · HITL/재개/예산)에서 웹(W)과 colab CLI(C)가 호출하는 전부.
   description: |
     # 읽는 법
@@ -1706,7 +1706,7 @@ paths:
       summary: 결과 수락(`colab card accept`)
       description: |
         권한: `TaskToken`(카드의 **위임자** 에이전트의 task, 같은 방) · 미션 Director·deputy(미션 밖 카드면 방장·부방장). 그 밖 `403 not_card_judge`.
-        v0.3.10 (PRD FR-3.8 4). `result_submitted` 에서만(`409 card_not_judgeable`). 카드 `accepted`, `judgement` 기록, 결과 카드 말풍선 판정 줄 갱신(`message.updated`)·`card.updated`. 결정 기록은 만들지 않는다.
+        v0.3.11 (PRD FR-3.8 4, Director 결정 2026-10-03). `result_submitted` 에서만(`409 card_not_judgeable`). **`comment` 필수** — 무엇을 확인했고 왜 됐다고 보는지 한두 문장(비거나 공백만이면 `422 judgement_comment_required`). 카드 `accepted`, `judgement`(`comment` 포함) 기록, 결과 카드 말풍선 판정 줄 갱신(`message.updated` — 「수락 · 〈이름〉 〈시각〉 — 〈comment〉」)·`card.updated`. 결정 기록은 만들지 않는다.
       x-colab-cli: card accept
       x-prd: [FR-3.8]
       x-screen: [S7]
@@ -1714,6 +1714,15 @@ paths:
       security:
         - UserSession: []
         - TaskToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comment]
+              properties:
+                comment: { type: string, minLength: 1, maxLength: 600 }
       responses:
         '200':
           description: 카드.
@@ -1723,6 +1732,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
         default: { $ref: '#/components/responses/Problem' }
 
   /cards/{cardId}/revise:
@@ -5500,7 +5510,8 @@ components:
             id: { type: string, format: uuid }
             name: { type: string }
         at: { type: string, format: date-time }
-        reason: { type: [string, 'null'] }
+        reason: { type: [string, 'null'], description: '`action: revise_requested` 의 사유.' }
+        comment: { type: [string, 'null'], description: 'v0.3.11 — `action: accepted` 의 코멘트(필수 입력, PRD FR-3.8 4). `revise_requested` 는 null — 사유는 `reason`.' }
     TaskCard:
       type: object
       description: 'v0.3.10 — 위임 카드와 그 결과(PRD FR-3.8). 번호는 미션 안에서(미션 밖 위임이면 방 안에서) 1부터. 판(`version`)은 수정 요청마다 +1 — 지난 판은 `versions`(getCard 만).'

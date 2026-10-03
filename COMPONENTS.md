@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | **v0.19.10** — §9.13 **Task Card · Result Card · Card Board(작업 카드·분담표)**(SCREEN v0.19.15). **v0.19.9** — §9.10 Working Bubble 에 **「지금」 줄**(SCREEN v0.19.13). **v0.19.8** — §9.12 **Media Preview · Attachment Chip**(SCREEN v0.19.12). **v0.19.7** — §9.11 **Part Bubble · Part Head(부분 메시지)**(SCREEN v0.19.11). **v0.19.6** — §9.10 **Working Bubble(「작업 중」 말풍선)**(SCREEN v0.19.10). **v0.19.5** — §9.9 **Inline Title Edit(방 이름 그 자리 편집)**(PRD FR-2.1.2). **v0.19.4** — §9.8 **Addressee Line(보낸 쪽 → 받는 쪽 머리) · Chat Bubble** — 타임라인 대화 배치(PRD FR-3.1.3). **v0.19.3** — §9.6 **Fold Row(작업 내용·작업 과정 접힘 줄)** · §9.7 **Timeline View Toggle(대화만 / 작업 내용 펼침)** — 에이전트 메시지 세 층(PRD FR-3.1.2). **v0.19.2** — 구조 전환(방·미션) 반영 + V19-GAP(PRD #280) 라벨 정정. §1~§7 은 **세션 모델 P0 와이어프레임의 기록**이고, **§8·§9 가 현행 규약이다** |
+| 문서 버전 | **v0.19.11** — §9.13 Result Card 판정 줄에 **코멘트**(SCREEN v0.19.16). **v0.19.10** — §9.13 **Task Card · Result Card · Card Board(작업 카드·분담표)**(SCREEN v0.19.15). **v0.19.9** — §9.10 Working Bubble 에 **「지금」 줄**(SCREEN v0.19.13). **v0.19.8** — §9.12 **Media Preview · Attachment Chip**(SCREEN v0.19.12). **v0.19.7** — §9.11 **Part Bubble · Part Head(부분 메시지)**(SCREEN v0.19.11). **v0.19.6** — §9.10 **Working Bubble(「작업 중」 말풍선)**(SCREEN v0.19.10). **v0.19.5** — §9.9 **Inline Title Edit(방 이름 그 자리 편집)**(PRD FR-2.1.2). **v0.19.4** — §9.8 **Addressee Line(보낸 쪽 → 받는 쪽 머리) · Chat Bubble** — 타임라인 대화 배치(PRD FR-3.1.3). **v0.19.3** — §9.6 **Fold Row(작업 내용·작업 과정 접힘 줄)** · §9.7 **Timeline View Toggle(대화만 / 작업 내용 펼침)** — 에이전트 메시지 세 층(PRD FR-3.1.2). **v0.19.2** — 구조 전환(방·미션) 반영 + V19-GAP(PRD #280) 라벨 정정. §1~§7 은 **세션 모델 P0 와이어프레임의 기록**이고, **§8·§9 가 현행 규약이다** |
 | 대상 | `agent-collaboration.pen` 와이어프레임 **v0.4** (P0, **세션 모델**) + `web/` 구현 |
 | 근거 | `PRD.md` **v0.19** §3.2 화면 용어(정본) · `SCREEN.md` **v0.19.2** §5 공통 컴포넌트, `design/DESIGN_REVIEW_01.md` §6.2 · `design/DESIGN_REVIEW_02.md` §4 (컴포넌트화 요청). 리뷰·후속 조치 이력은 `design/` |
 | 작성일 | 2026-09-04 (v0.19.1: 2026-09-22 — SCREEN 검증 3건 반영 · v0.19.2: 2026-09-23 — `manual` 라벨 「직접 멈춤」, 루프는 방 사유만) |
@@ -591,7 +591,7 @@ S7 방 머리 이름과 S5 방 카드 이름 줄이 **같은 컴포넌트**를 �
 | 확인함 · 가정함 | 칸 이름 열 + 본문. **가정함 글자는 `$s-warn-text`** |
 | 벗어난 점 · 남은 문제 | 칸 이름 열 + 본문, 없으면 줄 없음 |
 | 비용 · 시간 | 한 줄 `--fs-meta` `$ink-2` |
-| 판정 줄 | 카드 맨 아래 1px `$line` 위, 「수락 · @Lead 15:58」 / 「수정 요청 · @Lead — 사유」 + 「새 판 보기」 링크 |
+| 판정 줄 | 카드 맨 아래 1px `$line` 위, 「수락 · @Lead 15:58 — 코멘트」(v0.19.17, 코멘트 필수) / 「수정 요청 · @Lead — 사유」 + 「새 판 보기」 링크 |
 
 **Card Board(분담표)** — 우열 미션 칸 탭 「분담표」의 목록. **두 줄 행**(높이 48): 1줄 번호(등폭) · 「·」 · 목표(전폭 말줄임, 본문 글자), 2줄 `--fs-meta` `$ink-2` 「@담당 이름 · 상태 칩 · 충족 수 · 비용」. 담당은 이니셜 칩이 아니라 이름 글자(같은 이니셜 구분). 하위 카드는 16px 들여쓰기 + 「└」. hover `$surface`, 누르면 타임라인 스크롤. 탭 줄은 PanelTabs(탭 하나면 그리지 않음 — `web/components/PanelTabs.tsx`). 머리 오른쪽 「카드 N · 판정 대기 N」.
 
