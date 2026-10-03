@@ -89,7 +89,7 @@ var Tools = []Tool{
 	},
 	{
 		Name:        "colab_card_accept",
-		Description: "Accept a card's result — you delegated it and its result card is in (<result_cards>). The card closes. Same as `colab card accept <C-n|id>`.",
+		Description: "Accept a card's result — you delegated it and its result card is in (<result_cards>). `comment` is required: what you checked and why you judge it done, in one or two sentences — it stays on the result card's judgement line. The card closes. Same as `colab card accept <C-n|id> --comment <text>`.",
 		InputSchema: json.RawMessage(schemaCardAccept),
 	},
 	{

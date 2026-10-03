@@ -103,7 +103,7 @@ var snapArgs = map[string]map[string]any{
 	"colab_status_set":           {"status": "working", "note": "보는 중"},
 	"colab_card_delegate":        {"agent": "Reviewer", "goal": "봐 주세요", "criteria": []any{map[string]any{"text": "맞다", "method": "review"}}, "boundaries": "고치지 않는다", "depends_on": "l1,l2"},
 	"colab_card_report":          {"summary": "봤다", "verdicts": []any{map[string]any{"criterion": 1, "verdict": "partial", "note": "반만"}}, "confirmed": []any{"읽음"}, "assumed": []any{}},
-	"colab_card_accept":          {"card": "C-1"},
+	"colab_card_accept":          {"card": "C-1", "comment": "기준 1 을 봤다"},
 	"colab_card_revise":          {"card": "C-1", "reason": "근거가 없다", "patch": map[string]any{"goal": "다시"}},
 	"colab_card_get":             {"card": "C-1"},
 	"colab_card_list":            {},

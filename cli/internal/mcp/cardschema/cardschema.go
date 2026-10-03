@@ -79,7 +79,20 @@ func Generate(spec []byte) ([]byte, error) {
 		},
 		"additionalProperties": false,
 	}
-	accept := map[string]any{"type": "object", "required": []any{"card"}, "properties": map[string]any{"card": cardRef, "idempotency_key": map[string]any{"type": "string"}}, "additionalProperties": false}
+	// colab_card_accept: acceptCard's requestBody (v0.3.11 — comment
+	// required) plus the card reference and the key.
+	acceptBody, ok := dig(doc, "paths", "/cards/{cardId}/accept", "post", "requestBody", "content", "application/json", "schema").(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("cardschema: no acceptCard requestBody schema")
+	}
+	accept := tool(acceptBody)
+	aprops := accept["properties"].(map[string]any)
+	if c, ok := aprops["comment"].(map[string]any); ok {
+		c["description"] = "what you checked and why you judge it done — one or two sentences, shown on the result card's judgement line"
+	}
+	aprops["card"] = cardRef
+	aprops["idempotency_key"] = map[string]any{"type": "string"}
+	accept["required"] = append([]any{"card"}, accept["required"].([]any)...)
 	get1 := map[string]any{"type": "object", "required": []any{"card"}, "properties": map[string]any{"card": cardRef}, "additionalProperties": false}
 	list := map[string]any{"type": "object", "properties": map[string]any{"session": map[string]any{"type": "string"}}, "additionalProperties": false}
 

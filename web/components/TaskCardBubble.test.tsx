@@ -230,11 +230,12 @@ describe("결과 카드 — 칸 전부 · downgraded · 자동", () => {
     expect(within(rows[2]).getByTestId("card-downgraded")).toHaveTextContent("부분 · 근거 없음");
     expect(screen.getAllByTestId("card-downgraded")).toHaveLength(1);
   });
-  it("수락 — 판정 칩 수락 · 판정 줄 「수락 · @Lead 15:58」", () => {
-    const c = card({ status: "accepted", result: result(), judgement: { action: "accepted", by: { kind: "agent", id: "a1", name: "Lead" }, at: "2026-09-30T06:58:00Z", reason: null } });
+  it("수락 — 판정 칩 수락 · 판정 줄 「수락 · @Lead 15:58 — 〈코멘트〉」(v0.19.17)", () => {
+    const c = card({ status: "accepted", result: result(), judgement: { action: "accepted", by: { kind: "agent", id: "a1", name: "Lead" }, at: "2026-09-30T06:58:00Z", reason: null, comment: "커브 테스트 로그와 영상을 확인했습니다" } });
     render(<TimelineItemView item={one(resultMsg())} ctx={ctx({ cards: { c3: c } })} />);
     expect(within(screen.getByTestId("card-head")).getByRole("img", { name: "수락" })).toHaveAttribute("data-tone", "done");
-    expect(screen.getByTestId("card-judgement")).toHaveTextContent(/수락 · @Lead \d\d:58/);
+    // 시각은 lib/time clockTime 그대로(다른 줄과 같은 HH:MM:SS) — 코멘트는 「 — 」 뒤.
+    expect(screen.getByTestId("card-judgement")).toHaveTextContent(/^✓수락 · @Lead \d\d:58(:\d\d)? — 커브 테스트 로그와 영상을 확인했습니다$/);
   });
   it("수정 요청 판정 줄 — 「수정 요청 · 형주 — 사유」 + 「새 판 보기」(새 판 위임 카드로)", () => {
     const onJump = vi.fn();
@@ -274,14 +275,32 @@ describe("사람의 되돌리기 — 「⋯」 메뉴는 TaskCard.actions 만 �
     expect(screen.queryByTestId("card-menu-unaccept")).toBeNull();
     expect(screen.getByTestId("message-to-work")).toBeInTheDocument();
   });
-  it("Director·결과 제출 — 「수락」·「수정 요청…」: 수락은 바로, 수정 요청은 사유 한 칸(비면 막힘) → onCardAction(revise, 사유)", async () => {
+  it("Director·결과 제출 — 「수락…」·「수정 요청…」: 수락은 코멘트 한 칸(비면 보내기 막힘) → onCardAction(accept, 코멘트), 수정 요청은 사유 한 칸(비면 막힘) → onCardAction(revise, 사유)", async () => {
     const onCardAction = vi.fn(async () => undefined);
     const c = card({ status: "result_submitted", result: result(), actions: ["accept", "revise"] });
     render(<TimelineItemView item={one(resultMsg())} ctx={ctx({ cards: { c3: c }, onCardAction })} />);
     open();
-    expect(screen.getByTestId("card-menu-accept")).toHaveTextContent("수락");
+    expect(screen.getByTestId("card-menu-accept")).toHaveTextContent("수락…");
     fireEvent.click(screen.getByTestId("card-menu-accept"));
-    expect(onCardAction).toHaveBeenCalledWith(c, "accept");
+    // v0.19.17 — 빈 수락은 없다: 메뉴는 바로 수락하지 않고 코멘트 칸을 연다.
+    expect(onCardAction).not.toHaveBeenCalled();
+    const form = screen.getByTestId("card-reason");
+    expect(form).toHaveAttribute("data-kind", "accept");
+    expect(within(form).getByText(TASK_CARD.comment_label)).toBeInTheDocument();
+    const input = screen.getByTestId("card-reason-input");
+    expect(input).toHaveAttribute("placeholder", TASK_CARD.comment_hint);
+    expect(input).toHaveAttribute("maxLength", "600");
+    expect(screen.getByTestId("card-reason-send")).toBeDisabled();
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(screen.getByTestId("card-reason-send")).toBeDisabled();
+    fireEvent.submit(form);
+    expect(onCardAction).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "  테스트 로그를 확인했습니다 " } });
+    expect(screen.getByTestId("card-reason-send")).toBeEnabled();
+    expect(screen.getByTestId("card-reason-send")).toHaveTextContent("수락");
+    fireEvent.click(screen.getByTestId("card-reason-send"));
+    await waitFor(() => expect(onCardAction).toHaveBeenCalledWith(c, "accept", "테스트 로그를 확인했습니다"));
+    await waitFor(() => expect(screen.queryByTestId("card-reason")).toBeNull());
     open();
     fireEvent.click(screen.getByTestId("card-menu-revise"));
     fireEvent.click(screen.getByTestId("card-reason-send"));
@@ -290,6 +309,17 @@ describe("사람의 되돌리기 — 「⋯」 메뉴는 TaskCard.actions 만 �
     fireEvent.click(screen.getByTestId("card-reason-send"));
     await waitFor(() => expect(onCardAction).toHaveBeenLastCalledWith(c, "revise", "대각선 벽도"));
     await waitFor(() => expect(screen.queryByTestId("card-reason")).toBeNull());
+  });
+  it("수락 실패(서버 422 등)는 코멘트 칸 안에 문장으로 — 칸은 닫히지 않는다", async () => {
+    const onCardAction = vi.fn(async () => { throw new Error("무엇을 확인했는지 코멘트를 적으세요"); });
+    const c = card({ status: "result_submitted", result: result(), actions: ["accept", "revise"] });
+    render(<TimelineItemView item={one(resultMsg())} ctx={ctx({ cards: { c3: c }, onCardAction })} />);
+    open();
+    fireEvent.click(screen.getByTestId("card-menu-accept"));
+    fireEvent.change(screen.getByTestId("card-reason-input"), { target: { value: "봤다" } });
+    fireEvent.click(screen.getByTestId("card-reason-send"));
+    await waitFor(() => expect(screen.getByTestId("card-reason-error")).toHaveTextContent("무엇을 확인했는지 코멘트를 적으세요"));
+    expect(screen.getByTestId("card-reason")).toHaveAttribute("data-kind", "accept");
   });
   it("Director·수락됨 — 「수락 취소…」 하나(= revise) · 수락 없음 · 지난 판 말풍선에는 메뉴 항목 없음", () => {
     const c = card({ status: "accepted", result: result(), actions: ["revise"] });

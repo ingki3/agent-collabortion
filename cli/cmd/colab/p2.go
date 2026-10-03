@@ -31,7 +31,7 @@ func runLane(args []string, getenv client.Getenv, stdout, stderr io.Writer) int 
 
 // runCard is `colab card delegate|report|accept|revise|get|list` (v0.9.10).
 func runCard(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
-	const u = "usage: colab card delegate --file <card.json> [--depends-on <lane_id>] [--profile <name>] | report --file <result.json> | accept <C-n|id> | revise <C-n|id> --reason <text> [--file <patch.json>] | get <C-n|id> | list"
+	const u = "usage: colab card delegate --file <card.json> [--depends-on <lane_id>] [--profile <name>] | report --file <result.json> | accept <C-n|id> --comment <text> | revise <C-n|id> --reason <text> [--file <patch.json>] | get <C-n|id> | list"
 	if len(args) == 0 {
 		return usage(stderr, u)
 	}
@@ -44,6 +44,7 @@ func runCard(args []string, getenv client.Getenv, stdout, stderr io.Writer) int 
 	fs, _ := newFlagSet("card "+sub, stderr)
 	file := fs.String("file", "", "JSON file")
 	reason := fs.String("reason", "", "revise: what is missing")
+	comment := fs.String("comment", "", "accept: what you checked and why it is done (required)")
 	profile := fs.String("profile", "", "delegate: profile name")
 	session := fs.String("session", "", "room id override")
 	key := fs.String("idempotency-key", "", "optional Idempotency-Key (uuid)")
@@ -73,7 +74,7 @@ func runCard(args []string, getenv client.Getenv, stdout, stderr io.Writer) int 
 		}
 		v = r
 	case "accept":
-		v, err = colab.CardAccept(ctx, c, colab.CardJudgeArgs{Card: pos, IdempotencyKey: *key})
+		v, err = colab.CardAccept(ctx, c, colab.CardJudgeArgs{Card: pos, Comment: *comment, IdempotencyKey: *key})
 	case "revise":
 		v, err = colab.CardRevise(ctx, c, colab.CardJudgeArgs{Card: pos, Reason: *reason, File: *file, IdempotencyKey: *key})
 	case "get":

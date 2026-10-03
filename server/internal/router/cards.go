@@ -207,8 +207,9 @@ func lockCardViaLane(ctx context.Context, tx pgx.Tx, cardID uuid.UUID) (*cards.R
 	return c, err
 }
 
-// Accept is acceptCard.
-func (s *Service) Accept(ctx context.Context, cardID uuid.UUID, j Judgement) (*gen.TaskCard, error) {
+// Accept is acceptCard. comment is the judgement's (v0.3.11 — the handler
+// has trimmed it and refused a blank one).
+func (s *Service) Accept(ctx context.Context, cardID uuid.UUID, j Judgement, comment string) (*gen.TaskCard, error) {
 	now := s.Clock.Now()
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
@@ -233,7 +234,7 @@ func (s *Service) Accept(ctx context.Context, cardID uuid.UUID, j Judgement) (*g
 	if _, ok := cards.Transition(c.Status, cards.ActAccept, judge.Person != nil); !ok {
 		return nil, apperr.Conflict("card_not_judgeable", cards.CardNotJudgeableSentence)
 	}
-	if err := cards.Accept(ctx, tx, c, byKind, byID, byName, now); err != nil {
+	if err := cards.Accept(ctx, tx, c, byKind, byID, byName, comment, now); err != nil {
 		return nil, err
 	}
 	if j.TaskID != nil {

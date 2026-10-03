@@ -12,7 +12,7 @@
  * 캐시에 그 판이 없으면 `ctx.needCard` 로 한 번 부탁하고(방 화면이 `getCard`), 그동안은 서버가 쓴 요약(`content`)을 흐리게 둔다.
  *
  * 사람의 되돌리기(「⋯」 메뉴): **`TaskCard.actions` 만 본다** — 미션 Director·deputy 에게 서버가 내려준 동작만 항목이 된다(권한 없는 사람에겐 항목 없음).
- * 결과 제출이면 「수락」·「수정 요청…」, 수락이면 「수락 취소…」(= revise). 사유는 말풍선 안 한 칸.
+ * 결과 제출이면 「수락…」(코멘트 한 칸, v0.19.17 필수)·「수정 요청…」, 수락이면 「수락 취소…」(= revise). 코멘트·사유는 말풍선 안 한 칸.
  */
 import { useEffect, useId, useState, type ReactNode } from "react";
 import "./task-card.css";
@@ -105,7 +105,7 @@ export function cardMenuItems(card: TaskCard | null): { action: CardAction; kind
   return out;
 }
 
-function CardMenu({ card, ctx, toWork, onAsk }: { card: TaskCard | null; ctx: CardCtx; toWork: ReactNode; onAsk: (k: "revise" | "unaccept") => void }) {
+function CardMenu({ card, toWork, onAsk }: { card: TaskCard | null; toWork: ReactNode; onAsk: (k: Ask) => void }) {
   const [open, setOpen] = useState(false);
   const items = cardMenuItems(card);
   return (
@@ -124,11 +124,10 @@ function CardMenu({ card, ctx, toWork, onAsk }: { card: TaskCard | null; ctx: Ca
               data-testid={`card-menu-${it.kind}`}
               onClick={() => {
                 setOpen(false);
-                if (it.kind === "accept" && card) void ctx.onCardAction(card, "accept");
-                else onAsk(it.kind as "revise" | "unaccept");
+                onAsk(it.kind);
               }}
             >
-              {it.kind === "accept" ? L.accept : it.kind === "revise" ? L.revise : L.unaccept}
+              {it.kind === "accept" ? L.accept_menu : it.kind === "revise" ? L.revise : L.unaccept}
             </button>
           ))}
           {toWork}
@@ -138,11 +137,16 @@ function CardMenu({ card, ctx, toWork, onAsk }: { card: TaskCard | null; ctx: Ca
   );
 }
 
-function ReasonForm({ kind, card, ctx, onClose }: { kind: "revise" | "unaccept"; card: TaskCard; ctx: CardCtx; onClose: () => void }) {
+/** 말풍선 안 한 칸 — 수락은 코멘트(v0.19.17 필수, 1~600자), 수정 요청·수락 취소는 사유. 빈 값이면 보내기를 막는다. */
+type Ask = "accept" | "revise" | "unaccept";
+
+function ReasonForm({ kind, card, ctx, onClose }: { kind: Ask; card: TaskCard; ctx: CardCtx; onClose: () => void }) {
   const [text, setText] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const id = useId();
+  const accept = kind === "accept";
+  const blank = !text.trim();
   return (
     <form
       className="tcard__reason"
@@ -150,10 +154,10 @@ function ReasonForm({ kind, card, ctx, onClose }: { kind: "revise" | "unaccept";
       data-kind={kind}
       onSubmit={async (e) => {
         e.preventDefault();
-        if (!text.trim()) return setErr(L.reason_required);
+        if (blank) return setErr(accept ? L.comment_hint : L.reason_required);
         setBusy(true);
         try {
-          await ctx.onCardAction(card, "revise", text.trim());
+          await ctx.onCardAction(card, accept ? "accept" : "revise", text.trim());
           onClose();
         } catch (x) {
           setErr(x instanceof Error ? x.message : String(x));
@@ -162,11 +166,21 @@ function ReasonForm({ kind, card, ctx, onClose }: { kind: "revise" | "unaccept";
         }
       }}
     >
-      <label htmlFor={id} className="tcard__label">{kind === "unaccept" ? L.reason_unaccept : L.reason_revise}</label>
-      <textarea id={id} className="input" rows={2} value={text} onChange={(e) => { setText(e.target.value); setErr(null); }} data-testid="card-reason-input" autoFocus />
+      <label htmlFor={id} className="tcard__label">{accept ? L.comment_label : kind === "unaccept" ? L.reason_unaccept : L.reason_revise}</label>
+      <textarea
+        id={id}
+        className="input"
+        rows={2}
+        value={text}
+        maxLength={accept ? L.comment_max : undefined}
+        placeholder={accept ? L.comment_hint : undefined}
+        onChange={(e) => { setText(e.target.value); setErr(null); }}
+        data-testid="card-reason-input"
+        autoFocus
+      />
       {err && <p className="problem small" role="alert" data-testid="card-reason-error">{err}</p>}
       <div className="row" style={{ gap: 6 }}>
-        <button type="submit" className="btn btn--sm btn--primary" disabled={busy} data-testid="card-reason-send">{L.send}</button>
+        <button type="submit" className="btn btn--sm btn--primary" disabled={busy || (accept && blank)} data-testid="card-reason-send">{accept ? L.accept : L.send}</button>
         <button type="button" className="btn btn--sm" onClick={onClose} data-testid="card-reason-close">{L.close}</button>
       </div>
     </form>
@@ -176,7 +190,7 @@ function ReasonForm({ kind, card, ctx, onClose }: { kind: "revise" | "unaccept";
 /** 같은 뼈대 — MessageCard(대화 배치)에 카드 머리·본문·메뉴를 끼운다. 작업 내용·작업 과정(`layers.below`)은 카드 아래. */
 function Bubble({ message: m, ctx, toWork, workLabel, head, body, aria, testId, noReportOf }: CardBubbleProps & { head: ReactNode; body: ReactNode; aria: string | undefined; testId: string; noReportOf?: boolean }) {
   const { card } = useCardVersion(m, ctx);
-  const [ask, setAsk] = useState<"revise" | "unaccept" | null>(null);
+  const [ask, setAsk] = useState<Ask | null>(null);
   const current = !!card && (m.card_version ?? card.version) === card.version;
   const conversation = (mm: Message, o: { parent?: Message }): ConversationSlot => {
     const c = ctx.conversation(mm, o);
@@ -213,7 +227,7 @@ function Bubble({ message: m, ctx, toWork, workLabel, head, body, aria, testId, 
       workLabel={workLabel}
       headExtra={head}
       ariaLabel={aria}
-      menu={<CardMenu card={current ? card : null} ctx={ctx} toWork={toWork} onAsk={setAsk} />}
+      menu={<CardMenu card={current ? card : null} toWork={toWork} onAsk={setAsk} />}
     />
   );
 }
@@ -345,7 +359,7 @@ export function ResultCardBubble(props: CardBubbleProps) {
           <span aria-hidden="true" className="tcard__glyph" data-verdict={j.action === "accepted" ? "met" : "partial"}>{j.action === "accepted" ? "✓" : "↺"}</span>
           {j.action === "accepted" ? L.judged_accept : L.judged_revise}
           {j.by.kind === "agent" ? `@${j.by.name}` : j.by.name}
-          {j.action === "accepted" ? ` ${clockTime(j.at)}` : j.reason ? ` — ${j.reason}` : ""}
+          {j.action === "accepted" ? ` ${clockTime(j.at)}${j.comment ? ` — ${j.comment}` : ""}` : j.reason ? ` — ${j.reason}` : ""}
           {j.action === "revise_requested" && card.version > view.version && card.delegate_message_id && (
             <>
               {" · "}

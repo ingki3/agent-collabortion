@@ -240,19 +240,27 @@ func resolveCard(ctx context.Context, c *client.Client, ref string) (string, err
 		Detail: fmt.Sprintf("이 미션에 %s 카드가 없습니다 — colab card list 로 번호를 확인하세요", strings.ToUpper(ref))}
 }
 
-// CardJudgeArgs — `colab card accept <C-n|id>` · `colab card revise <C-n|id>
-// --reason <t> [--file <patch.json>]` / colab_card_accept · colab_card_revise.
+// CardJudgeArgs — `colab card accept <C-n|id> --comment <t>` · `colab card
+// revise <C-n|id> --reason <t> [--file <patch.json>]` / colab_card_accept ·
+// colab_card_revise.
 type CardJudgeArgs struct {
-	Card   string         `json:"card"`
-	Reason string         `json:"reason,omitempty"`
-	File   string         `json:"file,omitempty"`
-	Patch  map[string]any `json:"patch,omitempty"`
+	Card    string         `json:"card"`
+	Comment string         `json:"comment,omitempty"`
+	Reason  string         `json:"reason,omitempty"`
+	File    string         `json:"file,omitempty"`
+	Patch   map[string]any `json:"patch,omitempty"`
 
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
-// CardAccept — POST /cards/{C}/accept.
+// CardAccept — POST /cards/{C}/accept {comment} (v0.9.11: the comment is
+// required — missing is exit 2 before the server is called; whitespace-only
+// goes through and the server's 422 judgement_comment_required is exit 3,
+// as colab-cli.md §2 writes it).
 func CardAccept(ctx context.Context, c *client.Client, a CardJudgeArgs) (json.RawMessage, error) {
+	if a.Comment == "" {
+		return nil, client.Usage("--comment is required")
+	}
 	if err := c.Allow(ctx, client.CmdCardAccept); err != nil {
 		return nil, err
 	}
@@ -260,7 +268,7 @@ func CardAccept(ctx context.Context, c *client.Client, a CardJudgeArgs) (json.Ra
 	if err != nil {
 		return nil, err
 	}
-	return c.CardCall(ctx, http.MethodPost, "/cards/"+url.PathEscape(id)+"/accept", nil, map[string]any{}, a.IdempotencyKey)
+	return c.CardCall(ctx, http.MethodPost, "/cards/"+url.PathEscape(id)+"/accept", nil, map[string]any{"comment": a.Comment}, a.IdempotencyKey)
 }
 
 // CardRevise — POST /cards/{C}/revise {reason, card?}.

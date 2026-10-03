@@ -556,7 +556,7 @@ func TestRestartRevivalEdges(t *testing.T) {
 		c := f.taskCard(t, rTask)
 		f.report(t, rTask)
 		f.finishCompleted(t, rTask)
-		if _, err := f.srv.Router.Accept(ctx, c.ID, router.Judgement{TaskID: &leadTask, Attempt: 1}); err != nil {
+		if _, err := f.srv.Router.Accept(ctx, c.ID, router.Judgement{TaskID: &leadTask, Attempt: 1}, "확인함"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := f.pool.Exec(ctx, `UPDATE lane SET status = 'failed' WHERE id = $1`, rLane); err != nil {

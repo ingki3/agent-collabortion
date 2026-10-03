@@ -591,8 +591,15 @@ func TestP2CommandAndMCPToolAgree(t *testing.T) {
 		},
 		{
 			name: "card accept", tool: "colab_card_accept",
-			argv: []string{"card", "accept", "C-1"},
-			args: map[string]any{"card": "C-1"},
+			argv: []string{"card", "accept", "C-1", "--comment", "기준 1 을 테스트로 확인"},
+			args: map[string]any{"card": "C-1", "comment": "기준 1 을 테스트로 확인"},
+		},
+		{
+			// v0.9.11: no comment → exit 2 before the server is called.
+			name: "card accept without comment", tool: "colab_card_accept",
+			argv:     []string{"card", "accept", "C-1"},
+			args:     map[string]any{"card": "C-1"},
+			wantExit: client.ExitUsage,
 		},
 		{
 			name: "card list", tool: "colab_card_list",

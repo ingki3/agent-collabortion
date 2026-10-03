@@ -77,7 +77,7 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              delegate with a card (the only way; a new lane, a room participant)
   colab card report --file <result.json>
                              the result card of the card you were handed, before status set done
-  colab card accept <C-n|id> | revise <C-n|id> --reason <text> [--file <patch.json>]
+  colab card accept <C-n|id> --comment <text> | revise <C-n|id> --reason <text> [--file <patch.json>]
   colab card get <C-n|id> | list
   colab decision record --summary <s> [--rationale <r>]
   colab artifact submit --type <t> --file <p> [--name <n>] [--description <d>]

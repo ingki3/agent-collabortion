@@ -891,7 +891,7 @@ export const TASK_CARD = {
   ref_missing: "지워진 자료",
   ref_glyph: { artifact: "📄", decision: "⚖", message: "💬" },
   evidence_glyph: { artifact: "📄", message: "💬", commit: "⎇" },
-  /** 판정 줄 — 「수락 · @Lead 15:58」 / 「수정 요청 · @Lead — 〈사유〉」 + 「새 판 보기」. */
+  /** 판정 줄 — 「수락 · @Lead 15:58 — 〈코멘트〉」(v0.19.17 코멘트 필수) / 「수정 요청 · @Lead — 〈사유〉」 + 「새 판 보기」. */
   judged_accept: "수락 · ",
   judged_revise: "수정 요청 · ",
   new_version: "새 판 보기",
@@ -901,8 +901,14 @@ export const TASK_CARD = {
   /** 사람의 되돌리기(「⋯」 메뉴) — 미션 Director·deputy 에게만(`TaskCard.actions`). */
   menu: "카드 동작",
   accept: "수락",
+  /** 「⋯」 메뉴 항목 — 코멘트 한 칸을 연다(다른 칸 여는 항목처럼 「…」). */
+  accept_menu: "수락…",
   unaccept: "수락 취소…",
   revise: "수정 요청…",
+  /** 수락 코멘트 한 칸(v0.19.17, PRD FR-3.8 4 — 빈 수락은 없다). 칸 이름 · 자리 표시 · 한도. */
+  comment_label: "코멘트",
+  comment_hint: "무엇을 확인했고 왜 됐다고 보나요? 한두 문장",
+  comment_max: 600,
   reason_revise: "무엇이 모자란가요?",
   reason_unaccept: "왜 수락을 취소하나요? 담당이 이 사유로 다시 합니다",
   reason_required: "사유를 적어 주세요",

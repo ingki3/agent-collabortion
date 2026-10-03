@@ -213,12 +213,40 @@ func (s *Server) AcceptCard(w http.ResponseWriter, r *http.Request, cardId gen.C
 		writeProblem(w, p)
 		return
 	}
-	out, err := s.Router.Accept(r.Context(), cardId, s.judgement(r))
+	// v0.3.11 (PRD FR-3.8 4): no empty acceptance — the comment says what
+	// was checked, so 「누가 무엇을 보고 통과시켰나」 always stays.
+	var in gen.AcceptCardJSONBody
+	if p := decodeJSON(w, r, &in); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	comment, p := judgementComment(in.Comment)
+	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	out, err := s.Router.Accept(r.Context(), cardId, s.judgement(r), comment)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// judgementComment is acceptCard's comment check: trimmed, blank is 422
+// judgement_comment_required (the code rides on the problem and its one
+// field, like the other card 422s), over 600 runes is too_long.
+func judgementComment(raw string) (string, *Problem) {
+	c := strings.TrimSpace(raw)
+	if c == "" {
+		p := apperr.Validation(apperr.Field("comment", "judgement_comment_required", cards.JudgementCommentRequiredSentence))
+		p.Code, p.Detail = "judgement_comment_required", cards.JudgementCommentRequiredSentence
+		return "", p
+	}
+	if len([]rune(c)) > cards.JudgementCommentMax {
+		return "", apperr.Validation(apperr.Field("comment", "too_long", cards.JudgementCommentTooLongSentence))
+	}
+	return c, nil
 }
 
 // ReviseCard is `colab card revise` and the card bubble's 「수정 요청」.

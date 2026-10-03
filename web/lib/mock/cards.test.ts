@@ -100,12 +100,12 @@ describe("작업 카드 목 — seed-cards · op 다섯", () => {
 
   it("사람의 판정 — 수락은 result_submitted 에서만(409) · 수락 취소 = revise(사유 필수 422) · 판 +1 · card.updated 방송은 actions 비움", async () => {
     const id = seed.cards["C-3"];
-    const acc = await call("POST", `/cards/${id}/accept`);
+    const acc = await call("POST", `/cards/${id}/accept`, { comment: "테스트 로그를 열어 확인했습니다" });
     expect(acc.status).toBe(200);
     expect(acc.body.status).toBe("accepted");
     expect(acc.body.actions).toEqual(["revise"]);
     expect(acc.body.judgement.by.kind).toBe("user");
-    expect((await call("POST", `/cards/${id}/accept`)).status).toBe(409);
+    expect((await call("POST", `/cards/${id}/accept`, { comment: "또" })).status).toBe(409);
     expect((await call("POST", `/cards/${id}/revise`, { reason: " " })).status).toBe(422);
     const rv = await call("POST", `/cards/${id}/revise`, { reason: "대각선 벽도" });
     expect(rv.status).toBe(200);
@@ -124,7 +124,31 @@ describe("작업 카드 목 — seed-cards · op 다섯", () => {
     const c = await call("GET", `/cards/${seed.cards["C-3"]}`);
     expect(c.status).toBe(200);
     expect(c.body.actions).toEqual([]);
-    expect((await call("POST", `/cards/${seed.cards["C-3"]}/accept`)).status).toBe(403);
+    expect((await call("POST", `/cards/${seed.cards["C-3"]}/accept`, { comment: "봤다" })).status).toBe(403);
+  });
+
+  // T-CARD-COMMENT(openapi v0.3.11 · PRD FR-3.8 4) — 수락에는 코멘트가 필수: 없음·빈 값·공백만은 서버처럼 422 judgement_comment_required
+  // (errors[] 같은 모양) · 카드는 그대로 판정 대기 · 통과하면 trim 해 judgement.comment 에, reason 은 null. 시드 C-1 수락에도 코멘트.
+  it("수락 코멘트 — 없음·빈·공백만 422 judgement_comment_required · 600자 넘으면 422 · 통과하면 judgement.comment", async () => {
+    const id = seed.cards["C-3"];
+    for (const body of [undefined, {}, { comment: "" }, { comment: "  \n " }]) {
+      const r = await call("POST", `/cards/${id}/accept`, body);
+      expect(r.status).toBe(422);
+      expect(r.body.code).toBe("judgement_comment_required");
+      expect(r.body.errors).toEqual([{ field: "comment", code: "judgement_comment_required", message: "무엇을 확인했는지 코멘트를 적으세요" }]);
+    }
+    expect((await call("POST", `/cards/${id}/accept`, { comment: "가".repeat(601) })).status).toBe(422);
+    expect((await call("GET", `/cards/${id}`)).body.status).toBe("result_submitted");
+    const ok = await call("POST", `/cards/${id}/accept`, { comment: "  기준 1·2 는 로그로, 3 은 화면으로 확인  " });
+    expect(ok.status).toBe(200);
+    expect(ok.body.judgement).toMatchObject({ action: "accepted", comment: "기준 1·2 는 로그로, 3 은 화면으로 확인", reason: null });
+    const c1 = (await call("GET", `/cards/${seed.cards["C-1"]}`)).body as TaskCard;
+    expect(c1.judgement).toMatchObject({ action: "accepted", comment: "표의 5종과 출처 링크를 열어 확인했습니다", reason: null });
+    // 수정 요청은 영향 없음 — 사유만, comment 는 null.
+    const rv = await call("POST", `/cards/${id}/revise`, { reason: "대각선 벽도" });
+    expect(rv.status).toBe(200);
+    const v = (await call("GET", `/cards/${id}`)).body.versions.at(-1);
+    expect(v.judgement).toMatchObject({ action: "revise_requested", reason: "대각선 벽도", comment: null });
   });
 
   it("결과 제출 op — 기준을 빠짐없이(422) · 진행 중이 아니면 409 · 낮춘 번호는 downgraded·notice", async () => {

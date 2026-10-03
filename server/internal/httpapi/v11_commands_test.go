@@ -86,7 +86,7 @@ func (f *p2Fixture) cmdOp(t *testing.T, tok string, taskID uuid.UUID, cmd gen.Co
 		st, out, _ := c.do("POST", f.p+"/cards/"+uuid.NewString()+"/result", map[string]any{"summary": "s", "verdicts": []any{}, "confirmed": []string{"x"}, "assumed": []string{}}, key()...)
 		return st, out
 	case gen.ColabCommandCardAccept:
-		st, out, _ := c.do("POST", f.p+"/cards/"+uuid.NewString()+"/accept", map[string]any{}, key()...)
+		st, out, _ := c.do("POST", f.p+"/cards/"+uuid.NewString()+"/accept", map[string]any{"comment": "확인함"}, key()...)
 		return st, out
 	case gen.ColabCommandCardRevise:
 		st, out, _ := c.do("POST", f.p+"/cards/"+uuid.NewString()+"/revise", map[string]any{"reason": "모자람"}, key()...)
