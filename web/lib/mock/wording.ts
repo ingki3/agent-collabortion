@@ -296,6 +296,9 @@ export const CARD_MOCK = {
   not_judgeable: "지금은 판정할 때가 아닙니다",
   not_open: "진행 중인 카드에만 결과를 낼 수 있습니다",
   reason_required: "수정 요청에는 사유를 적어 주세요",
+  /** acceptCard 422 judgement_comment_required — 서버 cards.JudgementCommentRequiredSentence 와 같은 글자(v0.3.11). */
+  comment_required: "무엇을 확인했는지 코멘트를 적으세요",
+  comment_too_long: "코멘트는 600자까지입니다",
   result_incomplete: "위임 카드의 완료 기준을 하나도 빠짐없이 한 번씩 판정해 주세요",
   /** 서버 cards.CheckResult 의 confirmed 칸 사유(openapi CardResultInput.confirmed minItems 1) — #400 리뷰 400b NN2. */
   confirmed_required: "직접 확인한 것을 하나 이상 적어 주세요 — 확인하지 않고 가정한 것은 assumed 에 따로",
@@ -314,6 +317,7 @@ export const CARD_SEED = {
     goal: "경쟁작 조사", boundaries: "코드·에셋을 만들지 않는다 — 조사만",
     criteria: [["경쟁작 5종의 조작 방식을 표로", "artifact"], ["드리프트 처리 방식 비교", "review"], ["출처 링크", "inspect"]] as [string, string][],
     output: "표 한 장(마크다운)", summary: "경쟁작 5종의 조작 방식과 드리프트 처리를 표로 정리했습니다.", confirmed: ["5종 모두 실제 플레이 영상으로 확인"],
+    accept_comment: "표의 5종과 출처 링크를 열어 확인했습니다",
   },
   c2: {
     goal: "차량 스프라이트 24방향", boundaries: "물리 코드(Developer 담당)",

@@ -11,6 +11,7 @@
 #   C2  B 의 후속 task 1(trigger_reason=result_card_missing) · 자동 결과 0
 #   C3  합류 묶음 1 · Lead 가 <result_cards> 로 두 번 판정했다
 #   C4  C-1 accepted v1 · C-2 accepted v2(수정 요청 사유 기록) · 위임 말풍선 3 · 결과 말풍선 3
+#       C4d·C4e(T-CARD-COMMENT, colab-cli v0.9.11): accept 는 --comment 필수 — 없으면 exit 2 · 공백만 exit 3 judgement_comment_required · 코멘트는 judgement 에
 #   C5  B 의 lane 은 하나(재진입이지 새 lane 이 아니다)
 # 방 Q (질문): Asker 가 카드 없이 Q 를 멘션 → Q 의 task kind question.
 #   Q1  question task 1 · speech question 1 · answer 1
@@ -59,6 +60,9 @@ chk C2b "후속 턴이 결과 카드를 냈다(자동 결과 아님)" "ok/0" "$(
 chk C3a "합류 묶음 1" 1 "$(q "select count(*) from message where session_id='$ROOM_C' and author_type='system' and content like '%위임한 작업이 모두 끝났습니다%'")"
 chk C3b "Lead 가 <result_cards> 로 두 번 판정 · accept/revise/accept exit 0" "2 0/0/0" "$(recv lead-judge | awk '{print $NF}') $(recv lead-accept1)/$(recv lead-revise)/$(recv lead-accept2)"
 chk C4a "C-1 accepted v1 · C-2 accepted v2" "accepted v1/accepted v2" "$(card_row 1)/$(card_row 2)"
+# T-CARD-COMMENT (colab-cli v0.9.11 · openapi v0.3.11): 수락에는 코멘트가 필수 — 빈 수락은 거절, 코멘트는 판정에 남는다.
+chk C4d "accept --comment 없음 → exit 2 · 공백만 → exit 3 judgement_comment_required" "2/3 judgement_comment_required" "$(recv lead-accept-nocomment)/$(recv lead-accept-blank)"
+chk C4e "C-1·C-2 판정 코멘트가 남았다" "규모 숫자를 출처와 함께 확인했습니다/경쟁 제품 셋과 출처를 확인했습니다" "$(q "select judgement->>'comment' from task_card where room_id='$ROOM_C' and number=1")/$(q "select judgement->>'comment' from task_card where room_id='$ROOM_C' and number=2")"
 chk C4b "C-2 수정 요청 사유가 지난 판에 남았다" 1 "$(q "select count(*) from task_card where room_id='$ROOM_C' and number=2 and jsonb_array_length(versions) >= 1")"
 chk C4c "위임 말풍선 3(C-1 · C-2 v1 · C-2 v2) · 결과 말풍선 3" "3/3" "$(q "select count(*) from message where session_id='$ROOM_C' and card_role='delegation'")/$(q "select count(*) from message where session_id='$ROOM_C' and card_role='result'")"
 chk C5 "B 의 lane 은 하나(수정 요청은 같은 lane 재진입)" 1 "$(q "select count(*) from lane where session_id='$ROOM_C' and agent_id='$B'")"

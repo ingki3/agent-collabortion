@@ -168,16 +168,17 @@ export function registerCards(ctx: CardsCtx): void {
     return { message: m, downgraded };
   }
 
-  function judge(s: Store, sess: Session, c: Stored, by: { kind: "agent" | "user"; id: string; name: string }, action: "accepted" | "revise_requested", reason: string | null) {
-    c.judgement = { action, by, at: now(), reason };
+  function judge(s: Store, sess: Session, c: Stored, by: { kind: "agent" | "user"; id: string; name: string }, action: "accepted" | "revise_requested", reason: string | null, comment: string | null = null) {
+    // v0.3.11 — accepted 는 comment(필수), revise_requested 는 reason. 다른 쪽은 null.
+    c.judgement = { action, by, at: now(), reason, comment };
     if (c.result?.message_id) {
       const rm = s.messages.get(c.result.message_id);
       if (rm) emit(s, sess.workspace_id, "message.updated", rm, sess.id);
     }
   }
-  function accept(s: Store, sess: Session, c: Stored, by: { kind: "agent" | "user"; id: string; name: string }) {
+  function accept(s: Store, sess: Session, c: Stored, by: { kind: "agent" | "user"; id: string; name: string }, comment: string) {
     if (c.status !== "result_submitted") throw new Problem(409, "card_not_judgeable", CARD_MOCK.not_judgeable);
-    judge(s, sess, c, by, "accepted", null);
+    judge(s, sess, c, by, "accepted", null, comment);
     c.status = "accepted";
     touch(c);
     syncLane(s, sess, c);
@@ -266,7 +267,11 @@ export function registerCards(ctx: CardsCtx): void {
     const { c, sess } = cardOr404(s, req, p.id);
     const u = requireUser(s, req);
     if (!judgeUser(s, c, u.id)) throw new Problem(403, "not_card_judge", CARD_MOCK.not_card_judge);
-    accept(s, sess, c, { kind: "user", id: u.id, name: u.display_name });
+    // v0.3.11(PRD FR-3.8 4) — 빈 수락은 서버처럼 422 judgement_comment_required(같은 errors[] 모양).
+    const comment = String(((req.body ?? {}) as { comment?: string }).comment ?? "").trim();
+    if (!comment) throw new Problem(422, "judgement_comment_required", CARD_MOCK.comment_required, { errors: [{ field: "comment", code: "judgement_comment_required", message: CARD_MOCK.comment_required }] });
+    if ([...comment].length > 600) throw new Problem(422, "validation_failed", VALIDATION_DETAIL, { errors: [{ field: "comment", code: "too_long", message: CARD_MOCK.comment_too_long }] });
+    accept(s, sess, c, { kind: "user", id: u.id, name: u.display_name }, comment);
     return ok(out(s, c, u.id, false));
   });
   on("POST", "/cards/{id}/revise", (req, p) => {
@@ -334,7 +339,7 @@ export function registerCards(ctx: CardsCtx): void {
     const ev1: CardEvidence = { kind: "artifact", ref: tbl.id, label: "경쟁작-조사.md" };
     report(s, sess, d1.card, d1.task, { summary: CARD_SEED.c1.summary, verdicts: [1, 2, 3].map((n) => ({ criterion: n, verdict: "met" as const, evidence: [ev1] })), confirmed: [...CARD_SEED.c1.confirmed], assumed: [] }, { cost: 0.8, duration: 9 * 60 });
     finish(d1.task, 0.8);
-    accept(s, sess, d1.card, agentAs(lead));
+    accept(s, sess, d1.card, agentAs(lead), CARD_SEED.c1.accept_comment);
 
     // C-2 Designer — 결과 카드 없이 끝나 서버가 쓴 자동 결과 카드(모든 기준 미충족).
     const d2 = delegate(s, sess, { from: lead, fromTask: tLead, to: designer, workId, goal: CARD_SEED.c2.goal, criteria: CARD_SEED.c2.criteria, boundaries: CARD_SEED.c2.boundaries, refs: [refs.tile], output: CARD_SEED.c2.output });

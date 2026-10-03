@@ -429,10 +429,12 @@ func snapshot(ctx context.Context, q db.DBTX, r *Row) map[string]any {
 }
 
 // Judgement is one CardJudgement.
-func judgementJSON(action string, byKind string, byID uuid.UUID, byName string, at time.Time, reason *string) []byte {
+// reason is revise_requested's, comment is accepted's (v0.3.11) — the other
+// is null.
+func judgementJSON(action string, byKind string, byID uuid.UUID, byName string, at time.Time, reason, comment *string) []byte {
 	b, _ := json.Marshal(map[string]any{
 		"action": action, "by": map[string]any{"kind": byKind, "id": byID, "name": byName},
-		"at": at.UTC().Format(time.RFC3339Nano), "reason": reason,
+		"at": at.UTC().Format(time.RFC3339Nano), "reason": reason, "comment": comment,
 	})
 	return b
 }
@@ -495,7 +497,7 @@ func versionCostDuration(ctx context.Context, q db.DBTX, r *Row) (*float64, *int
 func Revise(ctx context.Context, tx pgx.Tx, r *Row, d Draft, reason string, byKind string, byID uuid.UUID, byName string, now time.Time) error {
 	snap := snapshot(ctx, tx, r)
 	// The judgement that asked for this version is the old version's last word.
-	snap["judgement"] = json.RawMessage(judgementJSON("revise_requested", byKind, byID, byName, now, &reason))
+	snap["judgement"] = json.RawMessage(judgementJSON("revise_requested", byKind, byID, byName, now, &reason, nil))
 	var versions []any
 	if len(r.Versions) > 0 {
 		_ = json.Unmarshal(r.Versions, &versions)
@@ -525,10 +527,11 @@ func SetDelegateMessage(ctx context.Context, tx pgx.Tx, cardID, msgID uuid.UUID)
 	return err
 }
 
-// Accept closes the card with a judgement.
-func Accept(ctx context.Context, tx pgx.Tx, r *Row, byKind string, byID uuid.UUID, byName string, now time.Time) error {
+// Accept closes the card with a judgement and its comment (v0.3.11 — the
+// caller has checked it is not blank).
+func Accept(ctx context.Context, tx pgx.Tx, r *Row, byKind string, byID uuid.UUID, byName string, comment string, now time.Time) error {
 	_, err := tx.Exec(ctx, `UPDATE task_card SET status = 'accepted', judgement = $2, updated_at = $3 WHERE id = $1`,
-		r.ID, judgementJSON("accepted", byKind, byID, byName, now, nil), now)
+		r.ID, judgementJSON("accepted", byKind, byID, byName, now, nil, &comment), now)
 	return err
 }
 

@@ -377,17 +377,17 @@ func TestCardJudgeFlow(t *testing.T) {
 	card1, card2 := f.taskCard(t, c1), f.taskCard(t, c2)
 
 	// Another agent (R, the assignee) may not judge.
-	if _, err := f.srv.Router.Accept(ctx, card1.ID, router.Judgement{TaskID: &c1, Attempt: 1}); problemCode(err) != "not_card_judge" {
+	if _, err := f.srv.Router.Accept(ctx, card1.ID, router.Judgement{TaskID: &c1, Attempt: 1}, "확인함"); problemCode(err) != "not_card_judge" {
 		t.Fatalf("(judge-other-agent) err = %v", err)
 	}
-	if _, err := f.srv.Router.Accept(ctx, card1.ID, router.Judgement{TaskID: &leadNext, Attempt: 1}); err != nil {
+	if _, err := f.srv.Router.Accept(ctx, card1.ID, router.Judgement{TaskID: &leadNext, Attempt: 1}, "기준 둘 다 테스트로 확인"); err != nil {
 		t.Fatal(err)
 	}
 	if c := f.taskCard(t, c1); c.Status != cards.Accepted {
 		t.Fatalf("accepted card = %s", c.Status)
 	}
 	// Accept twice (agent): not judgeable.
-	if _, err := f.srv.Router.Accept(ctx, card1.ID, router.Judgement{TaskID: &leadNext, Attempt: 1}); problemCode(err) != "card_not_judgeable" {
+	if _, err := f.srv.Router.Accept(ctx, card1.ID, router.Judgement{TaskID: &leadNext, Attempt: 1}, "기준 둘 다 테스트로 확인"); problemCode(err) != "card_not_judgeable" {
 		t.Fatalf("second accept: %v", err)
 	}
 	goal := "B 조사 — 출처를 붙여서"

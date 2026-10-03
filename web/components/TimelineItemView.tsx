@@ -61,7 +61,8 @@ export interface TimelineCtx {
   /** 캐시에 그 카드(그 판)가 없거나, 결과 말풍선인데 그 판의 결과가 아직 없다 — 방 화면이 `getCard` 로 한 번 읽는다(판·종류마다 한 번). */
   needCard: (cardId: string, version: number | null, want: "card" | "result" | "actions") => void;
   /** 사람의 되돌리기 — 수락(`acceptCard`) · 수정 요청/수락 취소(`reviseCard`, 사유). 실패는 throw(말풍선의 사유 칸이 보여 준다). */
-  onCardAction: (card: TaskCard, action: "accept" | "revise", reason?: string) => Promise<void>;
+  /** 수락은 코멘트(v0.3.11 필수), 수정 요청은 사유 — 셋째 인자는 그 글. */
+  onCardAction: (card: TaskCard, action: "accept" | "revise", text?: string) => Promise<void>;
   /** 메시지로 스크롤·강조(화면 밖이면 앵커). */
   onJump: (messageId: string) => void;
   /** 참고 자료 칩 — 아티팩트 카드·결정 행·메시지로 스크롤·강조. */

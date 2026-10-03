@@ -136,7 +136,7 @@ func invocations(t *testing.T) map[client.Command]invocation {
 		client.CmdRoomRead:           {[]string{"room", "read", "--room", clienttest.OtherRoomID}, "GET", "/cli/rooms/" + clienttest.OtherRoomID + "/read"},
 		client.CmdWorkPropose:        {[]string{"work", "propose", "--goal", "g", "--why", "w"}, "POST", "/rooms/" + clienttest.SessionID + "/work-proposals"},
 		client.CmdCardReport:         {[]string{"card", "report", "--file", result}, "POST", "/cards/" + clienttest.CardID + "/result"},
-		client.CmdCardAccept:         {[]string{"card", "accept", clienttest.CardID}, "POST", "/cards/" + clienttest.CardID + "/accept"},
+		client.CmdCardAccept:         {[]string{"card", "accept", clienttest.CardID, "--comment", "확인함"}, "POST", "/cards/" + clienttest.CardID + "/accept"},
 		client.CmdCardRevise:         {[]string{"card", "revise", clienttest.CardID, "--reason", "r"}, "POST", "/cards/" + clienttest.CardID + "/revise"},
 		client.CmdCardGet:            {[]string{"card", "get", clienttest.CardID}, "GET", "/cards/" + clienttest.CardID},
 		client.CmdCardList:           {[]string{"card", "list"}, "GET", sess + "/cards"},

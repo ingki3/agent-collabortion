@@ -86,6 +86,13 @@ func (s *Server) handleCards(w http.ResponseWriter, r *http.Request, path string
 			}
 			writeJSON(w, 200, out)
 		case "accept":
+			// v0.3.11: a blank comment is 422 judgement_comment_required.
+			if c, _ := body["comment"].(string); strings.TrimSpace(c) == "" {
+				writeJSON(w, 422, map[string]any{"type": "about:blank", "title": "Unprocessable", "status": 422, "code": "judgement_comment_required",
+					"detail": "무엇을 확인했는지 코멘트를 적으세요",
+					"errors": []map[string]any{{"field": "comment", "code": "judgement_comment_required", "message": "무엇을 확인했는지 코멘트를 적으세요"}}})
+				return true
+			}
 			writeJSON(w, 200, s.cardJSON("accepted"))
 		case "revise":
 			writeJSON(w, 200, s.cardJSON("in_progress"))

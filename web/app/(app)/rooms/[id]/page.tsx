@@ -992,21 +992,22 @@ export default function RoomPage() {
   });
 
   /** 사람의 되돌리기(카드 「⋯」) — 응답의 카드는 내 호출이라 `actions` 까지 믿는다. 수정 요청이면 새 판 위임 카드 말풍선이 바로 선다. */
-  const cardAction = async (card: TaskCard, action: "accept" | "revise", reason?: string) => {
+  const cardAction = async (card: TaskCard, action: "accept" | "revise", text?: string) => {
     const put = (c: TaskCard) => {
       setCards((cur) => cardsOnUpserted(cur, c, { trustActions: true }));
       setBoard((b) => boardOnCard(b, c));
     };
     if (action === "accept") {
+      // v0.3.11 — 코멘트 필수. 실패(422 등)는 코멘트 칸이 받아 그 자리에 보인다(수정 요청과 같은 길).
       try {
-        put(await api.post("/cards/{cardId}/accept", { path: { cardId: card.id } }));
+        put(await api.post("/cards/{cardId}/accept", { path: { cardId: card.id }, body: { comment: text ?? "" } }));
       } catch (e) {
-        setError(errorMessage(e));
+        throw new Error(errorMessage(e));
       }
       return;
     }
     try {
-      const r = await api.post("/cards/{cardId}/revise", { path: { cardId: card.id }, idempotencyKey: newIdempotencyKey(), body: { reason: reason ?? "" } });
+      const r = await api.post("/cards/{cardId}/revise", { path: { cardId: card.id }, idempotencyKey: newIdempotencyKey(), body: { reason: text ?? "" } });
       put(r.card);
       onEvent({ id: "", type: "message.created", at: r.message.created_at, room_id: roomId, payload: r.message as unknown as Record<string, unknown> });
     } catch (e) {

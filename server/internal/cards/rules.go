@@ -518,7 +518,14 @@ const (
 	CardNotOpenSentence        = "이 카드는 지금 결과를 받지 않습니다 — 이미 판정됐거나 취소됐습니다"
 	NotCardJudgeSentence       = "이 카드를 판정할 수 없습니다 — 위임한 에이전트나 미션 Director·부 Director 만 수락·수정 요청합니다"
 	CardNotJudgeableSentence   = "지금은 이 카드를 판정할 때가 아닙니다 — 결과 카드가 나온 뒤에 수락·수정 요청하세요"
+	// JudgementCommentRequiredSentence is acceptCard's 422
+	// judgement_comment_required (openapi v0.3.11, PRD FR-3.8 4).
+	JudgementCommentRequiredSentence = "무엇을 확인했는지 코멘트를 적으세요"
+	JudgementCommentTooLongSentence  = "코멘트는 600자까지입니다"
 )
+
+// JudgementCommentMax is acceptCard's comment maxLength (openapi v0.3.11).
+const JudgementCommentMax = 600
 
 // ApplyPatch is TaskCardPatch over the card's current version: given fields
 // replace, missing ones keep (the assignee never changes).

@@ -215,7 +215,7 @@ func TestCardReport(t *testing.T) {
 func TestCardJudgeResolvesLabel(t *testing.T) {
 	s := clienttest.New(t)
 	c := newClient(t, s)
-	if _, err := colab.CardAccept(context.Background(), c, colab.CardJudgeArgs{Card: "C-1"}); err != nil {
+	if _, err := colab.CardAccept(context.Background(), c, colab.CardJudgeArgs{Card: "C-1", Comment: "기준 1 을 봤다"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := colab.CardRevise(context.Background(), c, colab.CardJudgeArgs{Card: "c-1", Reason: "근거가 없다", Patch: map[string]any{"goal": "새 목표"}}); err != nil {
@@ -230,7 +230,7 @@ func TestCardJudgeResolvesLabel(t *testing.T) {
 	if len(s.CardLists) == 0 || s.CardLists[0] != clienttest.WorkID {
 		t.Fatalf("C-n resolved on work_id %v, want COLAB_WORK_ID", s.CardLists)
 	}
-	_, err := colab.CardAccept(context.Background(), c, colab.CardJudgeArgs{Card: "C-9"})
+	_, err := colab.CardAccept(context.Background(), c, colab.CardJudgeArgs{Card: "C-9", Comment: "봤다"})
 	if e := client.AsError(err); e.Exit != client.ExitRefused || e.Code != "not_found" {
 		t.Fatalf("C-9: %+v", e)
 	}
@@ -243,6 +243,36 @@ func TestCardJudgeResolvesLabel(t *testing.T) {
 	}
 	if raw, err := colab.CardList(context.Background(), c, colab.CardListArgs{}); err != nil || !strings.Contains(string(raw), "items") {
 		t.Fatalf("list = %s %v", raw, err)
+	}
+}
+
+// v0.9.11 (PRD FR-3.8 4): accept needs a comment. Missing → exit 2 and no
+// request at all (not even the C-n lookup); whitespace-only reaches the
+// server and its 422 judgement_comment_required is exit 3; a comment is sent
+// as {comment} verbatim.
+func TestCardAcceptComment(t *testing.T) {
+	s := clienttest.New(t)
+	c := newClient(t, s)
+	_, err := colab.CardAccept(context.Background(), c, colab.CardJudgeArgs{Card: "C-1"})
+	if got := exitOf(t, err); got != client.ExitUsage {
+		t.Fatalf("accept without comment exit = %d", got)
+	}
+	if !strings.Contains(err.Error(), "--comment is required") {
+		t.Fatalf("accept without comment err = %v", err)
+	}
+	if len(s.CardCalls) != 0 || len(s.CardLists) != 0 {
+		t.Fatalf("a missing comment reached the server: calls %+v lists %v", s.CardCalls, s.CardLists)
+	}
+	_, err = colab.CardAccept(context.Background(), c, colab.CardJudgeArgs{Card: "C-1", Comment: "  "})
+	if e := client.AsError(err); e.Exit != client.ExitRefused || e.Code != "judgement_comment_required" {
+		t.Fatalf("blank comment: %+v", e)
+	}
+	if _, err := colab.CardAccept(context.Background(), c, colab.CardJudgeArgs{Card: "C-1", Comment: "테스트 로그를 봤다"}); err != nil {
+		t.Fatal(err)
+	}
+	last := s.CardCalls[len(s.CardCalls)-1]
+	if last.Op != "accept" || last.Body["comment"] != "테스트 로그를 봤다" {
+		t.Fatalf("accept body = %+v", last)
 	}
 }
 

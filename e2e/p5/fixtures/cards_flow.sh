@@ -4,7 +4,7 @@
 #   흔적은 $FAKE_OUT/101-<tag> 파일에 남긴다(하네스가 읽는다).
 #
 #   Lead  : 목표 턴 → 카드 둘 위임(첫 시도는 기준 없는 카드 → card_invalid, 고쳐서 통과) ·
-#           <result_cards> 턴 1 → C-1 accept · C-2 revise ·  <result_cards> 턴 2 → C-2 accept.
+#           <result_cards> 턴 1 → C-1 accept(--comment 없음 exit 2 · 공백만 exit 3 · 코멘트로 통과) · C-2 revise ·  <result_cards> 턴 2 → C-2 accept --comment.
 #   A     : 카드 턴 → 결과 카드(met) + status set done.
 #   B     : 카드 v1 첫 턴 → 게시만, 결과 없이 턴 종료 · result_card_missing 후속 → 결과 카드 ·
 #           카드 v2(수정 요청) → 결과 카드.
@@ -28,10 +28,13 @@ role_Lead() {
   if has "<result_cards"; then
     n="$(cat "$O/101-lead-judge" 2>/dev/null || echo 0)"; echo $((n+1)) > "$O/101-lead-judge"
     if [ "$n" = 0 ]; then
-      out="$(colab card accept C-1 2>&1)"; rec lead-accept1 "$?"
+      # v0.9.11: --comment 없이 → exit 2(서버에 안 간다) · 공백만 → 서버 422 → exit 3.
+      out="$(colab card accept C-1 2>/dev/null)"; rec lead-accept-nocomment "$?"
+      out="$(colab card accept C-1 --comment "   " 2>/dev/null)"; rec lead-accept-blank "$? $(ecode "$out" '.error.code // .code // "-"')"
+      out="$(colab card accept C-1 --comment "규모 숫자를 출처와 함께 확인했습니다" 2>&1)"; rec lead-accept1 "$?"
       out="$(colab card revise C-2 --reason "출처를 한 줄 더 붙여 주세요" 2>&1)"; rec lead-revise "$?"
     else
-      out="$(colab card accept C-2 2>&1)"; rec lead-accept2 "$?"
+      out="$(colab card accept C-2 --comment "경쟁 제품 셋과 출처를 확인했습니다" 2>&1)"; rec lead-accept2 "$?"
     fi
   elif [ ! -s "$O/101-lead-delegated" ]; then
     f="$(card_file A "시장 규모를 조사한다" '[]')"
