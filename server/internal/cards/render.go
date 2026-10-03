@@ -210,9 +210,9 @@ func ResultCardsBlock(rs []*Row, mcp bool) string {
 // ResultCardsLine is the fixed line after `<result_cards>`.
 func ResultCardsLine(mcp bool) string {
 	if mcp {
-		return "Judge each card with the `colab_card_accept` or `colab_card_revise` tool (reason: \"<what is missing>\"). Read Assumed and unsupported verdicts first."
+		return "Judge each card with the `colab_card_accept` or `colab_card_revise` tool (comment for accept, reason for revise: \"<what you checked / what is missing>\"). Read Assumed and unsupported verdicts first."
 	}
-	return "Judge each card: `colab card accept C-n`, or `colab card revise C-n --reason \"<what is missing>\"`. Read Assumed and unsupported verdicts first."
+	return "Judge each card: `colab card accept C-n --comment \"<what you checked>\"`, or `colab card revise C-n --reason \"<what is missing>\"`. Read Assumed and unsupported verdicts first."
 }
 
 // BoardBlock is `<card_board>`: the open cards of the mission (in_progress ·
