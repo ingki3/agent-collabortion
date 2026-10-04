@@ -11,7 +11,7 @@ import (
 // MCP tool name without its `colab_` prefix (§3).
 type Command string
 
-// The twenty-one ColabCommand values (v0.9.10), in openapi.yaml enum order (colab-cli.md
+// The twenty-five ColabCommand values (v0.9.12), in openapi.yaml enum order (colab-cli.md
 // §2, then the v0.8 room commands of §2.4a; v0.9 R4 put room_get ·
 // room_messages in the old session reads' slots). commands_test.go checks
 // this list against the openapi.yaml enum.
@@ -38,6 +38,11 @@ const (
 	CmdCardRevise Command = "card_revise"
 	CmdCardGet    Command = "card_get"
 	CmdCardList   Command = "card_list"
+	// v0.9.12 (PRD FR-4.6): the mission ledger commands.
+	CmdMemoryNote      Command = "memory_note"
+	CmdMemorySupersede Command = "memory_supersede"
+	CmdMemoryRetire    Command = "memory_retire"
+	CmdMemoryGet       Command = "memory_get"
 )
 
 // AllCommands is the closed ColabCommand set.
@@ -47,6 +52,7 @@ var AllCommands = []Command{
 	CmdHitlAsk, CmdHitlApproveRequest, CmdHitlRequestInfo,
 	CmdRoomList, CmdRoomRead, CmdWorkPropose,
 	CmdCardReport, CmdCardAccept, CmdCardRevise, CmdCardGet, CmdCardList,
+	CmdMemoryNote, CmdMemorySupersede, CmdMemoryRetire, CmdMemoryGet,
 }
 
 // IsCommand reports whether s is one of AllCommands.
@@ -131,6 +137,18 @@ func (c *Client) gate(ctx context.Context) (list []string, role string, err erro
 	return nonEmpty(cc.AllowedCommands), cc.OwnRole(), nil
 }
 
+// KnownRole is the calling agent's role when the CLI knows it without a
+// round trip of its own — the gate's role: in context mode (no wrapper list)
+// the one cached getCliContext read, in wrapper env mode (COLAB_ALLOWED_COMMANDS
+// / --allow) only a context already read, else "". colab-cli v0.9.12 §2.3:
+// `memory note --kind plan|progress` is refused before sending when the role
+// is known and not lead; an unknown role sends and lets the server's 403
+// memory_kind_forbidden refuse.
+func (c *Client) KnownRole(ctx context.Context) (string, error) {
+	_, role, err := c.gate(ctx)
+	return role, err
+}
+
 // AllowedCommands is the list the gate reads: Config.AllowedCommands when
 // given, otherwise getCliContext.allowed_commands (fetched once and cached).
 // nil means "no list" — everything is allowed.
@@ -191,11 +209,11 @@ func QuestionRefusal(cmd Command) string {
 	return fmt.Sprintf(questionRefusalFormat, cmd.CLIName())
 }
 
-// questionCommands is the question table (colab-cli v0.9.10 §2.5) —
-// server/internal/cards QuestionCommands.
+// questionCommands is the question table (colab-cli v0.9.10 §2.5; v0.9.12
+// adds memory_get, read-only) — server/internal/cards QuestionCommands.
 var questionCommands = []Command{
 	"room_get", "room_messages", "room_list", "room_read", "artifact_get",
-	"card_get", "card_list", "message_post", "status_set", "hitl_ask",
+	"card_get", "card_list", "memory_get", "message_post", "status_set", "hitl_ask",
 }
 
 func inQuestionTable(cmd Command) bool {

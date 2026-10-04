@@ -4,7 +4,8 @@
 // colab_room_get · colab_room_messages · colab_message_post ·
 // colab_status_set · colab_card_delegate · colab_card_report ·
 // colab_card_accept · colab_card_revise · colab_card_get · colab_card_list
-// (v0.9.10) · colab_decision_record ·
+// (v0.9.10) · colab_memory_note · colab_memory_supersede ·
+// colab_memory_retire · colab_memory_get (v0.9.12) · colab_decision_record ·
 // colab_artifact_submit · colab_artifact_get · colab_review_approve ·
 // colab_review_reject · colab_hitl_ask · colab_hitl_approve_request ·
 // colab_hitl_request_info · (v0.8 §2.4a) colab_room_list · colab_room_read ·
@@ -24,7 +25,7 @@
 // (harness.md §3, strictMcpConfig) and the surface is a handful of tools, so
 // a hand-rolled JSON-RPC loop keeps the CLI a single static binary.
 //
-//go:generate go run ./cardschema/gen -spec ../../../contracts/openapi.yaml -out card_schemas.gen.go
+//go:generate go run ./cardschema/gen -spec ../../../contracts/openapi.yaml -out card_schemas.gen.go -memory-out memory_schemas.gen.go
 package mcp
 
 import (
@@ -106,6 +107,26 @@ var Tools = []Tool{
 		Name:        "colab_card_list",
 		Description: "This mission's card board: every card with its assignee, status and how many criteria are met. Same as `colab card list`.",
 		InputSchema: json.RawMessage(schemaCardList),
+	},
+	{
+		Name:        "colab_memory_note",
+		Description: "Write a new item on this mission's LEDGER — the mission's shared state that every later turn of the mission reads. `kind`: fact (something established; `certainty` given · to_verify · derived · guess, fact only), assignment (who does what), open_question, lesson (what to do or avoid next time; `outcome` dead_end · corrected · useful, lesson only — the same lesson written again raises its support instead of a duplicate), plan and progress (lead only — another role is refused with code `memory_kind_forbidden`). `content` is one sentence (≤300 chars); `source_message_ids` are the messages it comes from. Outside a mission it fails with code `no_mission`. Same as `colab memory note --kind --content [--certainty] [--outcome] [--source]`.",
+		InputSchema: json.RawMessage(schemaMemoryNote),
+	},
+	{
+		Name:        "colab_memory_supersede",
+		Description: "Replace a ledger item with a new one when it no longer holds as written: the old item is kept (status superseded, pointing at the new one) and the new item inherits its kind. A target that is not active fails with code `memory_not_active` — read the ledger again with colab_memory_get. Same as `colab memory supersede <id> --content [--source]`.",
+		InputSchema: json.RawMessage(schemaMemorySupersede),
+	},
+	{
+		Name:        "colab_memory_retire",
+		Description: "Withdraw a ledger item without a replacement (it was wrong or is no longer relevant); `reason` says why. The item is kept as retired, not deleted. Same as `colab memory retire <id> --reason`.",
+		InputSchema: json.RawMessage(schemaMemoryRetire),
+	},
+	{
+		Name:        "colab_memory_get",
+		Description: "Read this mission's ledger: {work_id, status, items[]} — each item with id, kind, content, certainty, outcome, support_count, status and who wrote it, oldest first. Default: active items of this turn's mission; `kind` narrows, `status` all includes superseded and retired ones. Same as `colab memory get [--kind] [--work] [--status]`.",
+		InputSchema: json.RawMessage(schemaMemoryGet),
 	},
 	{
 		Name:        "colab_decision_record",
@@ -441,15 +462,20 @@ var toolRuns = map[string]toolRun{
 		a.Result = m
 		return a
 	}, colab.CardReport),
-	"colab_card_accept":     run(as[colab.CardJudgeArgs], colab.CardAccept),
-	"colab_card_revise":     run(as[colab.CardJudgeArgs], colab.CardRevise),
-	"colab_card_get":        run(as[colab.CardGetArgs], colab.CardGet),
-	"colab_card_list":       run(as[colab.CardListArgs], colab.CardList),
-	"colab_decision_record": run(as[colab.DecisionRecordArgs], colab.DecisionRecord),
-	"colab_artifact_submit": run(as[colab.ArtifactSubmitArgs], colab.ArtifactSubmit),
-	"colab_artifact_get":    run(as[colab.ArtifactGetArgs], colab.ArtifactGet),
-	"colab_review_approve":  run(as[colab.ReviewArgs], colab.ReviewApprove),
-	"colab_review_reject":   run(as[colab.ReviewArgs], colab.ReviewReject),
+	"colab_card_accept": run(as[colab.CardJudgeArgs], colab.CardAccept),
+	"colab_card_revise": run(as[colab.CardJudgeArgs], colab.CardRevise),
+	"colab_card_get":    run(as[colab.CardGetArgs], colab.CardGet),
+	"colab_card_list":   run(as[colab.CardListArgs], colab.CardList),
+	// v0.9.12 ledger tools: arguments decode straight into the actions' Args.
+	"colab_memory_note":      run(as[colab.MemoryNoteArgs], colab.MemoryNote),
+	"colab_memory_supersede": run(as[colab.MemorySupersedeArgs], colab.MemorySupersede),
+	"colab_memory_retire":    run(as[colab.MemoryRetireArgs], colab.MemoryRetire),
+	"colab_memory_get":       run(as[colab.MemoryGetArgs], colab.MemoryGet),
+	"colab_decision_record":  run(as[colab.DecisionRecordArgs], colab.DecisionRecord),
+	"colab_artifact_submit":  run(as[colab.ArtifactSubmitArgs], colab.ArtifactSubmit),
+	"colab_artifact_get":     run(as[colab.ArtifactGetArgs], colab.ArtifactGet),
+	"colab_review_approve":   run(as[colab.ReviewArgs], colab.ReviewApprove),
+	"colab_review_reject":    run(as[colab.ReviewArgs], colab.ReviewReject),
 	"colab_hitl_ask": run(func(a hitlAskWire) colab.HitlAskArgs {
 		a.Choices = parseMention(a.ChoicesRaw) // same array-or-CSV shape
 		return a.HitlAskArgs

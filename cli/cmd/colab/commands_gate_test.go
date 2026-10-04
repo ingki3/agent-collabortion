@@ -66,8 +66,10 @@ func section25(t *testing.T) map[string]map[string]bool {
 			t.Fatalf("§2.5 row has %d cells, header %d: %q", len(row), len(header), l)
 		}
 		var cmds []string
-		// v0.9.10: 「(옛 `lane_delegate`)」 names what a row replaced.
-		first := regexp.MustCompile("옛 `[a-z_]+`").ReplaceAllString(row[0], "")
+		// v0.9.10: 「(옛 `lane_delegate`)」 names what a row replaced; v0.9.12:
+		// 「(v0.9.12, `kind: plan`·`progress` 는 …)」 is a remark — a
+		// parenthesis never names a command of the row.
+		first := regexp.MustCompile(`\([^)]*\)`).ReplaceAllString(row[0], "")
 		for _, m := range cmdRe.FindAllStringSubmatch(first, -1) {
 			cmds = append(cmds, m[1])
 		}
@@ -140,6 +142,10 @@ func invocations(t *testing.T) map[client.Command]invocation {
 		client.CmdCardRevise:         {[]string{"card", "revise", clienttest.CardID, "--reason", "r"}, "POST", "/cards/" + clienttest.CardID + "/revise"},
 		client.CmdCardGet:            {[]string{"card", "get", clienttest.CardID}, "GET", "/cards/" + clienttest.CardID},
 		client.CmdCardList:           {[]string{"card", "list"}, "GET", sess + "/cards"},
+		client.CmdMemoryNote:         {[]string{"memory", "note", "--kind", "fact", "--content", "c"}, "POST", "/works/" + clienttest.WorkID + "/memory"},
+		client.CmdMemorySupersede:    {[]string{"memory", "supersede", clienttest.MemoryID, "--content", "c"}, "POST", "/memory/" + clienttest.MemoryID + "/supersede"},
+		client.CmdMemoryRetire:       {[]string{"memory", "retire", clienttest.MemoryID, "--reason", "r"}, "POST", "/memory/" + clienttest.MemoryID + "/retire"},
+		client.CmdMemoryGet:          {[]string{"memory", "get"}, "GET", "/works/" + clienttest.WorkID + "/memory"},
 	}
 }
 
@@ -232,7 +238,7 @@ func paths(s *clienttest.Server) []string {
 	return out
 }
 
-// The §2.5 table names exactly the 21 ColabCommand values — no more (a name
+// The §2.5 table names exactly the 25 ColabCommand values — no more (a name
 // the enum lacks) and no fewer (a command the table forgot).
 func TestSection25NamesEveryCommand(t *testing.T) {
 	table := section25(t)
