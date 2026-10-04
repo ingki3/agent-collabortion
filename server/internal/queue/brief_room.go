@@ -335,24 +335,53 @@ func truncationNote(omitted int, h roomHistory, inMission bool, surf Surface) st
 	return s
 }
 
-// renderRoomHistoryTail writes ② and ③ (① is buildBundle's <history>).
+// missionIndexSummary is how much of a message one <mission_messages> line
+// carries (harness v0.9.18 「요약 120자」).
+const missionIndexSummary = 120
+
+// missionIndexLine is one message of ② as harness v0.9.18 writes it — a
+// header index, not the message: `- [<id>] <author>: <first 120 characters>`,
+// line breaks folded. A message with no conversation text (a card bubble
+// whose words are all in its detail) is summarised from its detail.
+func missionIndexLine(m *messages.Row) string {
+	text := m.Content
+	if strings.TrimSpace(text) == "" && m.Detail != nil {
+		text = *m.Detail
+	}
+	text = strings.Join(strings.Fields(text), " ")
+	r := []rune(text)
+	if len(r) > missionIndexSummary {
+		text = string(r[:missionIndexSummary]) + "…"
+	}
+	return fmt.Sprintf("- [%s] %s: %s\n", m.ID, authorLabel(m), text)
+}
+
+// renderRoomHistoryTail writes ②, <mission_ledger> and ③ (① is
+// buildBundle's <history>). ledger is the rendered <mission_ledger> block
+// ("" when the mission has nothing to show — the block is absent).
 //
 // metric (T-CTX0) takes the size of each bundle; nil measures nothing.
-func renderRoomHistoryTail(b *strings.Builder, workID *uuid.UUID, h roomHistory, surf Surface, metric *contextMetric) {
+func renderRoomHistoryTail(b *strings.Builder, workID *uuid.UUID, h roomHistory, ledger string, surf Surface, metric *contextMetric) {
 	if metric == nil {
 		metric = newContextMetric()
 	}
 	n := b.Len()
 	if workID != nil && len(h.MissionOlder) > 0 {
-		fmt.Fprintf(b, "<mission_messages work=%q count=%d note=\"this mission's messages older than <history>\">\n", workID.String(), len(h.MissionOlder))
+		// harness v0.9.18 (PRD FR-4.6 4): one line per message — the whole
+		// message is pulled with the thread read, not pushed every turn.
+		fmt.Fprintf(b, "<mission_messages work=%q count=%d note=\"this mission's messages older than <history>, one line each\">\n", workID.String(), len(h.MissionOlder))
 		for _, m := range h.MissionOlder {
-			hd := historyDetail(m, false, surf)
-			metric.add("prompt.mission_messages/detail", hd)
-			fmt.Fprintf(b, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("01-02 15:04"), m.ID, authorLabel(m), m.Content, hd)
+			b.WriteString(missionIndexLine(m))
 		}
+		fmt.Fprintf(b, "Read one in full with %s.\n", surf.ThreadRead("<id>"))
 		b.WriteString("</mission_messages>\n\n")
 	}
 	metric.wrote("prompt.mission_messages", b, n)
+	n = b.Len()
+	if workID != nil {
+		b.WriteString(ledger)
+	}
+	metric.wrote("prompt.mission_ledger", b, n)
 	n = b.Len()
 	if len(h.Decisions) > 0 {
 		fmt.Fprintf(b, "<room_decisions count=%d>\n%s\n</room_decisions>\n\n", len(h.Decisions), strings.Join(h.Decisions, "\n"))

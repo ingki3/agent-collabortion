@@ -24,28 +24,12 @@ func (unimplemented) GetLane(w http.ResponseWriter, r *http.Request, laneId gen.
 	notImplemented(w, r, "GetLane")
 }
 
-func (unimplemented) RetireMemory(w http.ResponseWriter, r *http.Request, memoryId gen.MemoryId) {
-	notImplemented(w, r, "RetireMemory")
-}
-
-func (unimplemented) SupersedeMemory(w http.ResponseWriter, r *http.Request, memoryId gen.MemoryId, params gen.SupersedeMemoryParams) {
-	notImplemented(w, r, "SupersedeMemory")
-}
-
 func (unimplemented) ListRoomTasks(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListRoomTasksParams) {
 	notImplemented(w, r, "ListRoomTasks")
 }
 
 func (unimplemented) UpdateRuntime(w http.ResponseWriter, r *http.Request, runtimeId gen.RuntimeId) {
 	notImplemented(w, r, "UpdateRuntime")
-}
-
-func (unimplemented) ListMemory(w http.ResponseWriter, r *http.Request, workId gen.WorkId, params gen.ListMemoryParams) {
-	notImplemented(w, r, "ListMemory")
-}
-
-func (unimplemented) NoteMemory(w http.ResponseWriter, r *http.Request, workId gen.WorkId, params gen.NoteMemoryParams) {
-	notImplemented(w, r, "NoteMemory")
 }
 
 func (unimplemented) UpdateWorkspace(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {

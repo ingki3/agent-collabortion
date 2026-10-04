@@ -17,6 +17,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/llm"
+	"github.com/ingki3/agent-collabortion/server/internal/memory"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/roles"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
@@ -338,6 +339,22 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	if err != nil {
 		return nil, nil, err
 	}
+	// harness v0.9.18 (PRD FR-4.6 4): the mission's ledger, right after ②.
+	// Not history — a resumed turn's delta carries it whole too.
+	var ledger string
+	ledgerItems := 0
+	if missionID != nil {
+		items, err := memory.List(ctx, tx, *missionID, "", string(gen.MemoryStatusActive))
+		if err != nil {
+			return nil, nil, err
+		}
+		ledger = memory.Render(*missionID, items, now, surf.LedgerMore)
+		for _, it := range items {
+			if memory.Rendered(it, now) {
+				ledgerItems++
+			}
+		}
+	}
 
 	// Brief [1]~[8] (PRD §8.4).
 	var brief strings.Builder
@@ -469,8 +486,8 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		return nil, nil, err
 	}
 
-	// Turn prompt — harness §10 v0.9.14's block order: <rebind> → <resumed>
-	// → head lines → ① → ② → ③ → <room_artifacts> → <reused_context> →
+	// Turn prompt — harness §10 v0.9.18's block order: <rebind> → <resumed>
+	// → head lines → ① → ② → <mission_ledger> → ③ → <room_artifacts> → <reused_context> →
 	// <mission_progress> → <roster_status> → <folders> → <trigger> → the
 	// closing instruction. renderPrompt writes it whole (anchor nil) or as
 	// a resumed turn's delta — only the head lines, ① and ② differ.
@@ -528,7 +545,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		fmt.Fprintf(&prompt, "<history%s included=%d total=%d truncated=%t>\n%s</history>\n\n",
 			since, histIncluded, histTotal, histTruncated, renderHist(hist, metric))
 		metric.wrote("prompt.history", &prompt, n)
-		renderRoomHistoryTail(&prompt, missionID, h, surf, metric)
+		renderRoomHistoryTail(&prompt, missionID, h, ledger, surf, metric)
 		n = prompt.Len()
 		prompt.WriteString(roomArtifacts)
 		metric.wrote("prompt.room_artifacts", &prompt, n)
@@ -603,6 +620,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	}
 	metric.Brief, metric.Prompt = sizeOf(brief.String()), sizeOf(promptText)
 	metric.Counts["room_decisions"] = len(roomHist.Decisions)
+	metric.Counts["mission_ledger"] = ledgerItems
 	metric.Counts["trigger_messages"] = len(triggerMsgs)
 
 	transport := contracts.BriefACPMetaSystemPrompt
