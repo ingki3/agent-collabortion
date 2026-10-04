@@ -19,7 +19,7 @@
 #   B. 래퍼 모드 — 래퍼가 COLAB_ALLOWED_COMMANDS(번들 task.allowed_commands)를 export, `env -i`: delegate → exit 3 ·
 #      탭 0줄(컨텍스트조차 없음) · role "" 문장 괄호 생략 · 허용 명령(room get — R4 전 session get)은 컨텍스트 없이 바로 서버로.
 #   C. MCP — `colab mcp serve --allow <reviewer 10>`: tools/list 10(delegate·submit·approve-request 없음) ·
-#      colab_card_delegate 호출 → isError command_not_allowed · 탭 0줄 · colab_room_get → 결과(R4 에서 session 별칭 툴 삭제) · --allow 없이 21.
+#      colab_card_delegate 호출 → isError command_not_allowed · 탭 0줄 · colab_room_get → 결과(R4 에서 session 별칭 툴 삭제) · --allow 없이 25.
 #   E. (T-R3a, colab-cli.md v0.8) 방 명령 셋 — lead `colab work propose` → 0 + work_proposal 1 · reviewer
 #      `colab work propose` → exit 3(선 1줄 = /cli/context) · reviewer `colab room list` → 0(모든 역할, 선에 GET /cli/rooms).
 #   D. 서버 우회 방어 한 줄 — 같은 토큰으로 curl 직접 POST /lanes → 403 command_not_allowed(81_ D.8 재확인, "세 층").
@@ -79,7 +79,7 @@ cli() {
     COLAB_LANE_ID="$lid" COLAB_SESSION_ID="$S" COLAB_AGENT_NAME="$name" COLAB_STATE_DIR="$OUT/84-state" "$COLAB" "$@" 2>>"$OUT/84-cli.err"
   printf '\n%s' "$?"
 }
-REVIEWER_ALL="room_get,room_messages,artifact_get,message_post,status_set,decision_record,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read,card_report,card_get,card_list"
+REVIEWER_ALL="room_get,room_messages,artifact_get,message_post,status_set,decision_record,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read,card_report,card_get,card_list,memory_note,memory_supersede,memory_retire,memory_get"
 # T-CARD-S(colab-cli v0.9.10): 위임은 카드 파일로 — card_file NAME GOAL → 경로
 card_file() { local f="$OUT/84-card-$1.json"; jq -nc --arg a "$1" --arg g "$2" '{agent:$a,goal:$g,criteria:[{text:($g+" — 결과를 보고한다"),method:"review"}],boundaries:"맡은 것 밖은 건드리지 않는다"}' > "$f"; printf '%s' "$f"; }
 
@@ -112,7 +112,7 @@ finish_turn "$T_L"
 
 step "A. 컨텍스트 모드 — reviewer 토큰(데몬 env 그대로, 목록은 getCliContext.allowed_commands)"
 IFS=$'\t' read -r T_R TT_R L_R AC_R <<<"$(run_turn "$S" "$R")"
-chk A.0 "$REVIEWER_ALL" "$AC_R" "번들 task.allowed_commands(reviewer 15 — v0.9.10 카드 읽기·결과 카드 포함) — 래퍼 모드(B)가 export 할 값"
+chk A.0 "$REVIEWER_ALL" "$AC_R" "번들 task.allowed_commands(reviewer 19 — v0.9.12 원장 넷 포함) — 래퍼 모드(B)가 export 할 값"
 tap_reset
 OUT_R="$(cli "$TT_R" "$T_R" "$L_R" R card delegate --file "$(card_file Lead "다시 써 주세요")")"
 chk A.1 3 "$(api_code <<<"$OUT_R")" "reviewer 토큰 colab card delegate → exit 3"
@@ -172,7 +172,7 @@ tap_reset
 OUT_W="$(env -i "$WRAPDIR/colab" room get 2>>"$OUT/84-wrap.err"; printf '\n%s' "$?")"
 chk B.6 "0/1/0" "$(api_code <<<"$OUT_W")/$(tap_count 'GET /api/v1/rooms/'"$S"' -> 200')/$(tap_count 'GET /api/v1/cli/context')" "허용 명령(room get — R4 에서 session get 삭제)은 바로 서버로: GET /rooms/{S} 1 · /cli/context 0"
 
-step "C. MCP — colab mcp serve --allow <reviewer 15>"
+step "C. MCP — colab mcp serve --allow <reviewer 19>"
 mcp_in() { printf '%s\n' "$@"; }
 tap_reset
 mcp_in '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
@@ -181,7 +181,7 @@ mcp_in '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
   | env -i PATH="$PATH" HOME="$HOME" COLAB_TASK_TOKEN="$TT_R" COLAB_SERVER_URL="$TAP_URL" COLAB_TASK_ID="$T_R" COLAB_TASK_ATTEMPT=1 \
       COLAB_LANE_ID="$L_R" COLAB_SESSION_ID="$S" COLAB_AGENT_NAME=R COLAB_STATE_DIR="$OUT/84-state" \
       "$COLAB" mcp serve --allow "$AC_R" > "$OUT/84-mcp.out" 2>"$OUT/84-mcp.err"
-chk C.1 "15" "$(sed -n 1p "$OUT/84-mcp.out" | jq -r '.result.tools|length')" "tools/list 15(reviewer 표 15 — v0.9.10 카드 읽기·결과 카드 포함)"
+chk C.1 "19" "$(sed -n 1p "$OUT/84-mcp.out" | jq -r '.result.tools|length')" "tools/list 19(reviewer 표 19 — v0.9.12 원장 넷 포함)"
 chk C.2 "0" "$(sed -n 1p "$OUT/84-mcp.out" | jq -r '[.result.tools[].name|select(.=="colab_card_delegate" or .=="colab_artifact_submit" or .=="colab_hitl_approve_request" or .=="colab_work_propose")]|length')" "delegate·submit·approve-request·work_propose 툴 없음"
 chk C.2b "2" "$(sed -n 1p "$OUT/84-mcp.out" | jq -r '[.result.tools[].name|select(.=="colab_room_list" or .=="colab_room_read")]|length')" "room_list·room_read 툴 있음(모든 역할)"
 chk C.3 "true/command_not_allowed/card_delegate" "$(sed -n 2p "$OUT/84-mcp.out" | jq -r '(.result.isError|tostring)+"/"+.result.structuredContent.error.code+"/"+.result.structuredContent.error.command')" "잘린 툴 호출 → isError command_not_allowed(프로토콜 오류 아님)"
@@ -189,7 +189,7 @@ chk C.4 "명령 게이트" "$(sed -n 3p "$OUT/84-mcp.out" | jq -r '.result.struc
 chk C.5 "2/1/0" "$(tap_lines)/$(tap_count 'GET /api/v1/rooms/'"$S"' -> 200')/$(tap_count 'POST /api/v1/rooms/'"$S"'/lanes')" "선: room get = GET /rooms/{S} + /participants 2줄뿐(COLAB_WORK_ID 없음 → getWork 없음) · /lanes 0 (--allow 가 게이트 목록이라 /cli/context 도 0)"
 mcp_in '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
   | env -i PATH="$PATH" HOME="$HOME" COLAB_TASK_TOKEN="$TT_R" COLAB_SERVER_URL="$TAP_URL" COLAB_SESSION_ID="$S" "$COLAB" mcp serve > "$OUT/84-mcp-all.out" 2>/dev/null
-chk C.6 21 "$(sed -n 1p "$OUT/84-mcp-all.out" | jq -r '.result.tools|length')" "--allow 없으면 21 전부(v0.9.10)"
+chk C.6 25 "$(sed -n 1p "$OUT/84-mcp-all.out" | jq -r '.result.tools|length')" "--allow 없으면 25 전부(v0.9.12)"
 
 step "D. 서버 우회 방어(세 층) — 같은 reviewer 토큰으로 curl 직접"
 R_="$(curl -sS -w '\n%{http_code}' -H "Authorization: Bearer $TT_R" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" -X POST "$API/rooms/$S/lanes" --data "$(jq -nc --arg a "$LEAD" '{card:{agent_id:$a,goal:"우회",criteria:[{text:"t",method:"review"}],boundaries:"x"}}')")"
