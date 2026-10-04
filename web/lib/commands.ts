@@ -15,10 +15,12 @@ export const ALL_COMMANDS: readonly ColabCommand[] = [
   "room_list", "room_read", "work_propose",
   // v0.9.10(PRD FR-3.8) — 작업 카드: 옛 lane 위임 자리가 카드 위임이 되고 카드 명령 다섯이 뒤에 붙는다(계약 enum 순서).
   "card_report", "card_accept", "card_revise", "card_get", "card_list",
+  // v0.9.12(PRD FR-4.6) — 미션 상태 원장: 기록·대체·철회·읽기 넷이 뒤에 붙는다(계약 enum 순서, 모든 역할).
+  "memory_note", "memory_supersede", "memory_retire", "memory_get",
 ];
 
-/** §2.5 첫 행 — 모든 역할이 쓰는 여덟 + v0.8 방 읽기 둘(`room_list`·`room_read`) + v0.9.10 카드 결과·읽기 셋(`card_report`·`card_get`·`card_list`, 모든 역할). */
-const COMMON: readonly ColabCommand[] = ["room_get", "room_messages", "artifact_get", "message_post", "status_set", "decision_record", "hitl_ask", "hitl_request_info", "room_list", "room_read", "card_report", "card_get", "card_list"];
+/** §2.5 첫 행 — 모든 역할이 쓰는 여덟 + v0.8 방 읽기 둘(`room_list`·`room_read`) + v0.9.10 카드 결과·읽기 셋(`card_report`·`card_get`·`card_list`, 모든 역할) + v0.9.12 원장 넷(`memory_*`, 모든 역할). */
+const COMMON: readonly ColabCommand[] = ["room_get", "room_messages", "artifact_get", "message_post", "status_set", "decision_record", "hitl_ask", "hitl_request_info", "room_list", "room_read", "card_report", "card_get", "card_list", "memory_note", "memory_supersede", "memory_retire", "memory_get"];
 
 /** §2.5 표 — 열 순서대로. `lead`·`custom` 은 전부. */
 export const ROLE_COMMAND_TABLE: Record<AgentRole, readonly ColabCommand[]> = {

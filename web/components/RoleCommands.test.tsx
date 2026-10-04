@@ -56,6 +56,6 @@ describe("RoleCommands", () => {
 
   it("서버 값이 없으면(새 에이전트·옛 서버) 표로 계산한다", () => {
     render(<RoleCommands role="writer" />);
-    expect(screen.getByTestId("role-commands").getAttribute("data-count")).toBe("14");
+    expect(screen.getByTestId("role-commands").getAttribute("data-count")).toBe("18"); // 실무자 18 = 공통 13(카드 결과·읽기 셋 포함) + 원장 넷(v0.9.12) + 아티팩트 제출
   });
 });

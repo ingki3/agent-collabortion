@@ -14,6 +14,8 @@
  * v0.19.15(T-CARD-W, SCREEN §4.6 (가)): 그 미션에 카드가 하나라도 있으면 「개요 · 분담표」 두 탭(머리 「카드 N · 판정 대기 N」은 탭 줄 오른쪽).
  * 카드가 0 이면 탭 줄 없이 개요만 — 카드 없는 미션의 화면은 지금과 같다. 고른 탭은 방 화면이 쥔다(`tab`·`onTab`, #392 리뷰 NN3 —
  * 미션을 바꿔도 「분담표」를 보던 사람은 분담표를 본다).
+ * v0.19.18(PRD FR-4.6 6): 원장 항목(대체·철회 포함 `status=all`)이 하나라도 있으면 「원장」 탭이 뒤에 붙는다 — 읽기 전용 목록(`LedgerList`).
+ * 같은 규칙: 0 이면 탭이 없고, 탭이 하나뿐이면 탭 줄도 없다.
  */
 import { useState } from "react";
 import "./session-aside.css";
@@ -25,13 +27,14 @@ import { BudgetCapLine } from "./BudgetCapLine";
 import { DisabledHint } from "./PageHead";
 import { PanelTabs, type PanelTab } from "./PanelTabs";
 import { CardBoard, boardHead } from "./CardBoard";
+import { LedgerList } from "./LedgerList";
 import { metByName } from "./SessionAside";
 import { progressSummary, topOp } from "@/lib/completion";
 import { humanDuration } from "@/lib/time";
 import { panelActionsEnabled, type PanelMode } from "@/lib/room-view";
 import { BUDGET_CAP, ROOM_HEAD, WORK_CHIPS, WORK_PANEL } from "@/lib/wording";
 import { WORK_EDIT, changeDirectorBlocked } from "@/lib/work-edit";
-import type { CardBoard as Board, CardBoardItem, Work } from "@/lib/api/types";
+import type { CardBoard as Board, CardBoardItem, MemoryItem, Work } from "@/lib/api/types";
 
 export interface WorkPanelProps {
   mode: PanelMode;
@@ -70,15 +73,20 @@ export interface WorkPanelProps {
   onTab?: (id: string) => void;
   /** 분담표 행을 누르면 — 타임라인 그 카드 말풍선으로. */
   onOpenCard?: (item: CardBoardItem) => void;
+  /** v0.19.18 — 실린 미션의 원장(`listMemory?status=all`). 이 미션의 항목이 0 이면 「원장」 탭 없음. */
+  ledger?: readonly MemoryItem[] | null;
 }
 
 const CLOSED = new Set(["completed", "cancelled"]);
 
 export function WorkPanel(props: WorkPanelProps) {
   const board = props.board && props.work && (props.board.work_id ?? null) === props.work.id && props.board.total > 0 ? props.board : null;
+  // 원장 — 다른 미션의 목록이 늦게 도착해도 그 미션 것만 센다(분담표의 work_id 대조와 같은 이유).
+  const ledger = props.work && props.ledger ? props.ledger.filter((it) => it.work_id === props.work!.id) : [];
   const tabs: PanelTab[] = [
     { id: "overview", label: WORK_PANEL.tab_overview, render: () => <WorkOverview {...props} /> },
     ...(board ? [{ id: "board", label: WORK_PANEL.tab_board, render: () => <CardBoard board={board} onOpen={(it) => props.onOpenCard?.(it)} /> }] : []),
+    ...(ledger.length > 0 ? [{ id: "ledger", label: WORK_PANEL.tab_ledger, render: () => <LedgerList items={ledger} /> }] : []),
   ];
   return (
     <PanelTabs

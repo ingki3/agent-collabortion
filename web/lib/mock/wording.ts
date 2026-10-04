@@ -72,6 +72,7 @@ export const NOT_FOUND_NOUN: Record<string, string> = {
   pairing: "연결 코드",
   lane: "서브 미션",
   card: "작업 카드",
+  memory: "원장 항목",
   task: "할 일",
   inbox_item: "받은 요청",
   hitl_request: "확인 요청",
@@ -307,6 +308,39 @@ export const CARD_MOCK = {
   auto_summary: "결과 카드 없이 끝남",
   not_found: "카드를 찾을 수 없습니다",
 } as const satisfies Record<string, string>;
+
+/**
+ * 미션 상태 원장(v0.3.12, PRD FR-4.6 · T-LEDGER) — 목의 원장 op 문장. 서버 `internal/memory/store.go` 상수(같은 PR 에서 만들어지는 중)의 글자를
+ * 그대로 옮겼다 — 아직 `SERVER` 대조 표(server-wording)에 넣지 않았다(`CARD_MOCK` 과 같은 자리). 404 는 명사표 `NOT_FOUND_NOUN.memory`.
+ */
+export const MEMORY_MOCK = {
+  not_active: "이미 대체되었거나 철회된 항목입니다 — 지금 값은 colab memory get 으로 확인하세요",
+  kind_immutable: "대체는 대상 항목의 종류와 미션을 그대로 물려받습니다 — kind·work_id 는 보내지 마세요",
+  content_required: "내용을 적어 주세요",
+  content_too_long: "원장 항목은 300자까지입니다 — 잘라 내지 않습니다, 줄여서 다시 보내세요",
+  reason_required: "철회 사유를 적어 주세요",
+  reason_too_long: "철회 사유는 300자까지입니다",
+  kind_invalid: "kind 는 fact · assignment · open_question · lesson · plan · progress 중 하나입니다",
+  status_invalid: "status 는 active · superseded · retired · all 중 하나입니다",
+  certainty_invalid: "certainty 는 given · to_verify · derived · guess 중 하나입니다",
+  outcome_invalid: "outcome 은 dead_end · corrected · useful 중 하나입니다",
+} as const satisfies Record<string, string>;
+
+/** 원장 시드(`/__mock/works/{id}/seed-memory` · `seed-cards` 끝)의 문장 — 마리오 카트 미션. */
+export const MEMORY_SEED = {
+  plan_old: "조사 → 스프라이트 → 주행 감각 순서로 간다",
+  plan: "조사와 스프라이트를 나란히, 주행 감각은 스프라이트가 나온 뒤에",
+  progress: "C-1 조사 수락 · C-3 커브 주행 판정 대기 — 다음은 대각선 벽",
+  fact_old: "타일 크기는 16px 이다",
+  fact_new: "타일 크기는 32px 이다(결정 기록)",
+  fact_guess: "SNES 원작은 Mode 7 로 바닥을 돌린 것 같다",
+  assignment: "차량 스프라이트 24방향은 Designer 가 맡는다",
+  open_question: "드리프트 미니 터보를 첫 판에 넣을까?",
+  lesson_promoted: "커브 판정을 타일 경계로 하면 대각선 벽에서 끼인다",
+  lesson_once: "스프라이트 시트를 한 장으로 합치면 로딩이 빨라진다",
+  retired: "배경 음악은 직접 작곡한다",
+  retire_reason: "범위 밖 — 이번 미션은 무음",
+} as const;
 
 /** 작업 카드 시드(`/__mock/rooms/{id}/seed-cards`)의 문장 — Pencil `S7-K 작업 카드` 의 예 그대로(마리오 카트 방). */
 export const CARD_SEED = {
