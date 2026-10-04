@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Colab Server API
-  version: 0.3.11-draft
+  version: 0.3.12-draft
   summary: Colab 서버 REST API — P1~P3(수직 슬라이스 · 협업 코어 · HITL/재개/예산)에서 웹(W)과 colab CLI(C)가 호출하는 전부.
   description: |
     # 읽는 법
@@ -43,6 +43,8 @@ tags:
     description: S5 목록 · S6 마법사(검증 · 후보) · S7 상단 액션(상태 전이 · Director · 참여자) · S17 재바인딩.
   - name: messages
     description: 타임라인 · 스레드 · 게시(멱등) · 트리거 미리보기(FR-3.6).
+  - name: memory
+    description: "v0.3.12 — 미션 상태 원장(PRD FR-4.6, 맥락 2단계): fact·assignment·open_question·lesson·plan·progress, 대체 전용(삭제 없음)."
   - name: cards
     description: 'v0.3.10 — 작업 카드(PRD FR-3.8): 위임 카드·결과 카드·판정·분담표.'
   - name: lanes
@@ -3488,6 +3490,156 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         default: { $ref: '#/components/responses/Problem' }
 
+  /works/{workId}/memory:
+    parameters:
+      - $ref: '#/components/parameters/WorkId'
+    get:
+      tags: [memory]
+      operationId: listMemory
+      summary: 미션 상태 원장 읽기(`colab memory get`)
+      description: |
+        권한: 워크스페이스 멤버(방 읽기 권한) · `TaskToken`(그 미션).
+        v0.3.12(PRD FR-4.6, 맥락 2단계). `status=active` 만 기본, `kind` 로 좁힌다. `lesson` 은 `support_count` ≥2 인 것만 포함(렌더 규칙과 같은 문턱 — 미만은 쿼리에 잡히되 `promoted: false`). 오래된 것부터.
+      x-colab-cli: memory get
+      x-prd: [FR-4.6]
+      x-phase: P2
+      security:
+        - UserSession: []
+        - TaskToken: []
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/MemoryKind' }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [active, superseded, retired, all], default: active }
+      responses:
+        '200':
+          description: 목록.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MemoryItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [memory]
+      operationId: noteMemory
+      summary: 원장에 새 항목(`colab memory note`)
+      description: |
+        권한: `TaskToken`(그 미션의 task). `kind` 가 `plan`·`progress` 면 호출자 역할이 `lead` 가 아닐 때 `403 memory_kind_forbidden`(FR-1.9.1 표 밖 — 역할 K-19 표와 별개로 서버가 kind 단위로 검사). `plan` 은 미션당 `active` 1개 — 새로 쓰면 이전 `active` plan 이 자동으로 `superseded_by` 이 항목.
+      x-colab-cli: memory note
+      x-prd: [FR-4.6]
+      x-phase: P2
+      security:
+        - TaskToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MemoryItemInput' }
+      responses:
+        '201':
+          description: 저장됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemoryItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /memory/{memoryId}/supersede:
+    parameters:
+      - $ref: '#/components/parameters/MemoryId'
+    post:
+      tags: [memory]
+      operationId: supersedeMemory
+      summary: 원장 항목을 새 항목으로 대체(`colab memory supersede`)
+      description: |
+        권한: `TaskToken`(그 미션의 task) · `noteMemory` 와 같은 kind 검사. 대상이 이미 `active` 가 아니면 `409 memory_not_active`.
+        v0.3.12. 새 `MemoryItem` 을 만들어 `supersedes` = 대상, 대상은 `status: superseded`·`superseded_by` = 새 항목으로 갱신한다. **대상 행은 고치지 않는다** — 새 행만 추가(Graphiti 이중 시간·Mem0 ADD-only 참고, PRD FR-4.6). `kind`·`work_id` 는 대상에서 물려받는다(본문에 주면 `422 kind_immutable`).
+      x-colab-cli: memory supersede
+      x-prd: [FR-4.6]
+      x-phase: P2
+      security:
+        - TaskToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, minLength: 1, maxLength: 300 }
+                certainty: { oneOf: [{ $ref: '#/components/schemas/MemoryCertainty' }, { type: 'null' }] }
+                source_message_ids:
+                  type: array
+                  maxItems: 10
+                  default: []
+                  items: { type: string, format: uuid }
+      responses:
+        '201':
+          description: 새 항목(옛 항목의 `superseded_by` 도 갱신).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [item, superseded]
+                properties:
+                  item: { $ref: '#/components/schemas/MemoryItem' }
+                  superseded: { $ref: '#/components/schemas/MemoryItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /memory/{memoryId}/retire:
+    parameters:
+      - $ref: '#/components/parameters/MemoryId'
+    post:
+      tags: [memory]
+      operationId: retireMemory
+      summary: 원장 항목 철회, 대체 없이(`colab memory retire`)
+      description: |
+        권한: `supersedeMemory` 와 같다. 대상을 `status: retired`·`invalidated_at` = now 로. 삭제하지 않는다(`listMemory` 의 `status=all` 로는 계속 보인다).
+      x-colab-cli: memory retire
+      x-prd: [FR-4.6]
+      x-phase: P2
+      security:
+        - TaskToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 300 }
+      responses:
+        '200':
+          description: 철회됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemoryItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
   /works/{workId}/pause:
     parameters:
       - $ref: '#/components/parameters/WorkId'
@@ -4004,6 +4156,11 @@ components:
       required: true
       schema: { type: string, format: uuid }
       description: 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙).
+    MemoryId:
+      name: memoryId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     WorkId:
       name: workId
       in: path
@@ -4216,8 +4373,8 @@ components:
       description: '`agent_role` (FR-1.1)'
     ColabCommand:
       type: string
-      description: 'colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose. v0.3.0(R4): session_get·session_messages → room_get·room_messages. v0.3.10(PRD FR-3.8): `lane_delegate` → `card_delegate`(위임은 카드로만), `card_report`·`card_accept`·`card_revise`·`card_get`·`card_list` 추가. 질문 task 는 역할 표 ∩ 질문 표(`room_get`·`room_messages`·`room_list`·`room_read`·`artifact_get`·`card_get`·`card_list`·`message_post`·`status_set`·`hitl_ask`) — colab-cli.md §2.5.'
-      enum: [room_get, room_messages, artifact_get, message_post, status_set, decision_record, card_delegate, artifact_submit, review_approve, review_reject, hitl_ask, hitl_approve_request, hitl_request_info, room_list, room_read, work_propose, card_report, card_accept, card_revise, card_get, card_list]
+      description: 'colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose. v0.3.0(R4): session_get·session_messages → room_get·room_messages. v0.3.10(PRD FR-3.8): `lane_delegate` → `card_delegate`(위임은 카드로만), `card_report`·`card_accept`·`card_revise`·`card_get`·`card_list` 추가. 질문 task 는 역할 표 ∩ 질문 표(`room_get`·`room_messages`·`room_list`·`room_read`·`artifact_get`·`card_get`·`card_list`·`message_post`·`status_set`·`hitl_ask`) — colab-cli.md §2.5. v0.3.12(PRD FR-4.6, 맥락 2단계): `memory_note`·`memory_supersede`·`memory_retire`·`memory_get` 추가 — `memory_note`·`memory_supersede` 는 모든 역할이 쓸 수 있지만 `kind: plan`·`progress` 는 서버가 호출자 역할로 한 번 더 막는다(`403 memory_kind_forbidden`).'
+      enum: [room_get, room_messages, artifact_get, message_post, status_set, decision_record, card_delegate, artifact_submit, review_approve, review_reject, hitl_ask, hitl_approve_request, hitl_request_info, room_list, room_read, work_propose, card_report, card_accept, card_revise, card_get, card_list, memory_note, memory_supersede, memory_retire, memory_get]
     AgentStatus:
       type: string
       enum: [idle, working, waiting_human, error, offline, disabled]
@@ -5891,6 +6048,60 @@ components:
         decision_id: { type: string, format: uuid }
         reviewed_at: { type: string, format: date-time }
 
+    # ── 미션 상태 원장 (v0.3.12, PRD FR-4.6) ──
+    MemoryKind:
+      type: string
+      enum: [fact, assignment, open_question, lesson, plan, progress]
+      description: '`memory_item.kind`. `plan`·`progress` 는 쓰기가 lead·사람으로 제한된다(PRD FR-4.6 2).'
+    MemoryCertainty:
+      type: string
+      enum: [given, to_verify, derived, guess]
+      description: '`kind: fact` 전용 — 확실도(Magentic-One facts 4분류 참고).'
+    MemoryOutcome:
+      type: string
+      enum: [dead_end, corrected, useful]
+      description: '`kind: lesson` 전용.'
+    MemoryStatus:
+      type: string
+      enum: [active, superseded, retired]
+    MemoryItemInput:
+      type: object
+      required: [kind, content]
+      properties:
+        kind: { $ref: '#/components/schemas/MemoryKind' }
+        content: { type: string, minLength: 1, maxLength: 300 }
+        certainty: { oneOf: [{ $ref: '#/components/schemas/MemoryCertainty' }, { type: 'null' }], description: 'kind=fact 가 아니면 무시.' }
+        outcome: { oneOf: [{ $ref: '#/components/schemas/MemoryOutcome' }, { type: 'null' }], description: 'kind=lesson 가 아니면 무시.' }
+        source_message_ids:
+          type: array
+          maxItems: 10
+          default: []
+          items: { type: string, format: uuid }
+    MemoryItem:
+      type: object
+      required: [id, work_id, kind, content, status, created_by, created_at, support_count]
+      properties:
+        id: { type: string, format: uuid }
+        work_id: { type: string, format: uuid }
+        kind: { $ref: '#/components/schemas/MemoryKind' }
+        content: { type: string }
+        certainty: { oneOf: [{ $ref: '#/components/schemas/MemoryCertainty' }, { type: 'null' }] }
+        outcome: { oneOf: [{ $ref: '#/components/schemas/MemoryOutcome' }, { type: 'null' }] }
+        support_count: { type: integer, minimum: 0, description: 'kind=lesson 만 1 이상. 그 밖은 0.' }
+        promoted: { type: boolean, description: 'kind=lesson 이 support_count ≥2 로 렌더 대상인가. 그 밖은 항상 true.' }
+        status: { $ref: '#/components/schemas/MemoryStatus' }
+        supersedes: { type: [string, 'null'], format: uuid }
+        superseded_by: { type: [string, 'null'], format: uuid }
+        invalidated_at: { type: [string, 'null'], format: date-time }
+        source_message_ids: { type: array, items: { type: string, format: uuid } }
+        created_by:
+          type: object
+          required: [kind, id, name]
+          properties:
+            kind: { type: string, enum: [agent, user] }
+            id: { type: string, format: uuid }
+            name: { type: string }
+        created_at: { type: string, format: date-time }
     Decision:
       type: object
       required: [id, session_id, summary, rationale, source, ref_id, created_at]
