@@ -373,7 +373,7 @@ func renderRoomHistoryTail(b *strings.Builder, workID *uuid.UUID, h roomHistory,
 		for _, m := range h.MissionOlder {
 			b.WriteString(missionIndexLine(m))
 		}
-		fmt.Fprintf(b, "Read one in full with %s.\n", surf.ThreadRead("<id>"))
+		b.WriteString(surf.MissionRead + "\n")
 		b.WriteString("</mission_messages>\n\n")
 	}
 	metric.wrote("prompt.mission_messages", b, n)

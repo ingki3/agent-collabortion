@@ -66,6 +66,10 @@ type Surface struct {
 	// <mission_ledger> overflow pointer for one kind.
 	LedgerRule string
 	ledgerMore string // fmt: kind
+	// MissionRead closes ② (v0.9.18): how to read one indexed message in
+	// full — English only on both surfaces (colab-cli v0.9.6 rule; the
+	// older threadRead phrase mixes in Korean, #409 리뷰 NN6).
+	MissionRead string
 }
 
 // Tool surface values (harness §9 runtime.capabilities[].tool_surface).
@@ -190,6 +194,7 @@ var shellSurface = Surface{
 	AttachFetch:     AttachFetch,
 	LedgerRule:      LedgerRule,
 	ledgerMore:      "`colab memory get --kind %s`",
+	MissionRead:     "Read one in full with `colab room messages --thread <id>`.",
 }
 
 var mcpSurface = Surface{
@@ -216,6 +221,7 @@ var mcpSurface = Surface{
 	AttachFetch:     AttachFetchMCP,
 	LedgerRule:      LedgerRuleMCP,
 	ledgerMore:      "the `colab_memory_get` tool (`kind: \"%s\"`)",
+	MissionRead:     "Read one in full with the `colab_room_messages` tool (`thread`: the message id).",
 }
 
 // SurfaceFor is the text set for a profile's runtime_kind: hermes reads the

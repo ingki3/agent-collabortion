@@ -76,10 +76,18 @@ type Item struct {
 	SupersededBy    *uuid.UUID
 	InvalidatedAt   *time.Time
 	SourceMessageID []uuid.UUID
-	AuthorAgentID   *uuid.UUID
-	AuthorUserID    *uuid.UUID
-	AuthorName      string
-	CreatedAt       time.Time
+	// RetireReason is retireMemory's reason (openapi v0.3.13 MemoryItem.retire_reason).
+	RetireReason *string
+	// SupportAuthors are the writers that reinforced a lesson — one count
+	// each (openapi v0.3.13: only a writer that has not contributed counts).
+	SupportAuthors []uuid.UUID
+	// LastReinforcedAt is when a lesson was last reinforced by a new writer
+	// (its created_at until then) — the 30-day render rule reads it.
+	LastReinforcedAt *time.Time
+	AuthorAgentID    *uuid.UUID
+	AuthorUserID     *uuid.UUID
+	AuthorName       string
+	CreatedAt        time.Time
 }
 
 // Promoted is openapi MemoryItem.promoted: a lesson with support_count ≥ 2;
@@ -95,6 +103,18 @@ type Author struct {
 	UserID  *uuid.UUID
 	// Role is the agent's role (FR-1.1); "" for a person.
 	Role string
+}
+
+// ID is the writer's id as the lesson support list counts it: the agent,
+// or the person.
+func (a Author) ID() uuid.UUID {
+	switch {
+	case a.UserID != nil:
+		return *a.UserID
+	case a.AgentID != nil:
+		return *a.AgentID
+	}
+	return uuid.Nil
 }
 
 // mayWrite is FR-4.6 2: plan · progress are the lead's and the people's.
@@ -139,6 +159,7 @@ type SupersedeIn struct {
 const selectItem = `
 	SELECT m.id, m.work_id, m.kind, m.content, m.certainty, m.outcome, m.support_count, m.status,
 	       m.supersedes, m.superseded_by, m.invalidated_at, m.source_message_ids,
+	       m.retire_reason, m.support_author_ids, m.last_reinforced_at,
 	       m.created_by_agent_id, m.created_by_user_id,
 	       COALESCE(a.name, u.display_name, ''), m.created_at
 	FROM memory_item m
@@ -149,6 +170,7 @@ func scan(row pgx.Row) (*Item, error) {
 	var it Item
 	err := row.Scan(&it.ID, &it.WorkID, &it.Kind, &it.Content, &it.Certainty, &it.Outcome, &it.SupportCount, &it.Status,
 		&it.Supersedes, &it.SupersededBy, &it.InvalidatedAt, &it.SourceMessageID,
+		&it.RetireReason, &it.SupportAuthors, &it.LastReinforcedAt,
 		&it.AuthorAgentID, &it.AuthorUserID, &it.AuthorName, &it.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -265,8 +287,11 @@ func validOutcome(o string) bool {
 //     memory_kind_forbidden.
 //   - certainty is kept for a fact only, outcome for a lesson only — given
 //     with another kind they are dropped, not refused (openapi「무시」).
-//   - a lesson whose trimmed content equals an active lesson of the same
-//     mission raises that lesson's support_count instead of adding a row.
+//   - a lesson whose trimmed content (exact, case-sensitive) equals an
+//     active lesson of the same mission never adds a row: it answers that
+//     lesson, and raises its support_count (and last_reinforced_at) only
+//     when the writer has not contributed to it yet (openapi v0.3.13 — the
+//     same writer saying it twice is not independent support).
 //   - a plan supersedes the mission's active plan (one active plan).
 func Note(ctx context.Context, tx pgx.Tx, in NoteIn, now time.Time) (*Item, bool, error) {
 	if !validKind(in.Kind) {
@@ -303,13 +328,19 @@ func Note(ctx context.Context, tx pgx.Tx, in NoteIn, now time.Time) (*Item, bool
 	if in.Kind == string(gen.MemoryKindLesson) {
 		support = 1
 		var dup uuid.UUID
+		var already bool
 		err := tx.QueryRow(ctx, `
-			SELECT id FROM memory_item
+			SELECT id, $3::uuid = ANY(support_author_ids) FROM memory_item
 			WHERE work_id = $1 AND kind = 'lesson' AND status = 'active' AND btrim(content) = $2
-			ORDER BY created_at, id LIMIT 1`, in.WorkID, content).Scan(&dup)
+			ORDER BY created_at, id LIMIT 1`, in.WorkID, content, in.Author.ID()).Scan(&dup, &already)
 		if err == nil {
-			if _, err := tx.Exec(ctx, `UPDATE memory_item SET support_count = support_count + 1 WHERE id = $1`, dup); err != nil {
-				return nil, false, fmt.Errorf("memory: lesson support: %w", err)
+			if !already {
+				if _, err := tx.Exec(ctx, `
+					UPDATE memory_item SET support_count = support_count + 1,
+					       support_author_ids = array_append(support_author_ids, $2), last_reinforced_at = $3
+					WHERE id = $1`, dup, in.Author.ID(), now); err != nil {
+					return nil, false, fmt.Errorf("memory: lesson support: %w", err)
+				}
 			}
 			it, err := Get(ctx, tx, dup)
 			return it, false, err
@@ -333,7 +364,11 @@ func Note(ctx context.Context, tx pgx.Tx, in NoteIn, now time.Time) (*Item, bool
 			return nil, false, fmt.Errorf("memory: active plan: %w", err)
 		}
 	}
-	if err := insert(ctx, tx, id, in.WorkID, in.Kind, content, certainty, outcome, support, supersedes, sources, in.Author, now); err != nil {
+	var supporters []uuid.UUID
+	if support > 0 {
+		supporters = []uuid.UUID{in.Author.ID()}
+	}
+	if err := insert(ctx, tx, id, in.WorkID, in.Kind, content, certainty, outcome, support, supporters, supersedes, sources, in.Author, now); err != nil {
 		return nil, false, err
 	}
 	it, err := Get(ctx, tx, id)
@@ -352,17 +387,26 @@ func markSuperseded(ctx context.Context, tx pgx.Tx, old, by uuid.UUID, now time.
 }
 
 func insert(ctx context.Context, tx pgx.Tx, id, workID uuid.UUID, kind, content string, certainty, outcome *string,
-	support int, supersedes *uuid.UUID, sources []uuid.UUID, a Author, now time.Time) error {
+	support int, supporters []uuid.UUID, supersedes *uuid.UUID, sources []uuid.UUID, a Author, now time.Time) error {
+	if supporters == nil {
+		supporters = []uuid.UUID{}
+	}
+	// last_reinforced_at starts at created_at, for a lesson only.
+	var reinforced *time.Time
+	if kind == string(gen.MemoryKindLesson) {
+		reinforced = &now
+	}
 	agentID := a.AgentID
 	if a.UserID != nil {
 		agentID = nil
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO memory_item (id, work_id, kind, content, certainty, outcome, support_count, supersedes,
-		                         source_message_ids, created_by_agent_id, created_by_user_id, created_by_task_id, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		                         source_message_ids, created_by_agent_id, created_by_user_id, created_by_task_id, created_at,
+		                         support_author_ids, last_reinforced_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 		id, workID, kind, content, certainty, outcome, support, supersedes,
-		sources, agentID, a.UserID, a.TaskID, now); err != nil {
+		sources, agentID, a.UserID, a.TaskID, now, supporters, reinforced); err != nil {
 		return fmt.Errorf("memory: insert: %w", err)
 	}
 	return nil
@@ -412,7 +456,7 @@ func Supersede(ctx context.Context, tx pgx.Tx, targetID uuid.UUID, in SupersedeI
 		return nil, nil, err
 	}
 	if err := insert(ctx, tx, id, target.WorkID, target.Kind, content, certainty, target.Outcome,
-		target.SupportCount, &targetID, sources, in.Author, now); err != nil {
+		target.SupportCount, target.SupportAuthors, &targetID, sources, in.Author, now); err != nil {
 		return nil, nil, err
 	}
 	item, err := Get(ctx, tx, id)
@@ -483,6 +527,18 @@ func ToAPI(it *Item) gen.MemoryItem {
 	} else {
 		out.InvalidatedAt = nullable.NewNullNullable[time.Time]()
 	}
+	if it.RetireReason != nil {
+		out.RetireReason = nullable.NewNullableWithValue(*it.RetireReason)
+	} else {
+		out.RetireReason = nullable.NewNullNullable[string]()
+	}
+	if r := it.reinforcedAt(); it.Kind == string(gen.MemoryKindLesson) && r != nil {
+		// The contract types it as a string (no format): the same RFC 3339
+		// text time.Time marshals created_at to.
+		out.LastReinforcedAt = nullable.NewNullableWithValue(r.Format(time.RFC3339Nano))
+	} else {
+		out.LastReinforcedAt = nullable.NewNullNullable[string]()
+	}
 	out.CreatedBy.Name = it.AuthorName
 	switch {
 	case it.AuthorUserID != nil:
@@ -495,6 +551,15 @@ func ToAPI(it *Item) gen.MemoryItem {
 		out.CreatedBy.Kind = gen.MemoryItemCreatedByKindAgent
 	}
 	return out
+}
+
+// reinforcedAt is last_reinforced_at, or created_at for a row written
+// before the column was filled.
+func (it *Item) reinforcedAt() *time.Time {
+	if it.LastReinforcedAt != nil {
+		return it.LastReinforcedAt
+	}
+	return &it.CreatedAt
 }
 
 func nullUUID(id *uuid.UUID) nullable.Nullable[uuid.UUID] {

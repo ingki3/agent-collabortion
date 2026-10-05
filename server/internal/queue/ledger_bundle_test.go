@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/ingki3/agent-collabortion/server/internal/memory"
 )
 
 // ledgerItem inserts one memory_item of the fixture's mission.
@@ -82,8 +84,14 @@ func TestMissionMessagesIsHeaderIndex(t *testing.T) {
 			t.Fatalf("not an index line: %q", l)
 		}
 	}
-	if tail != "Read one in full with `colab_room_messages` 툴의 `thread: \"<id>\"`." {
+	// #409 리뷰 NN6: the mcp pointer is English only (colab-cli v0.9.6).
+	if tail != "Read one in full with the `colab_room_messages` tool (`thread`: the message id)." {
 		t.Fatalf("pointer line = %q", tail)
+	}
+	for _, r := range tail {
+		if r >= 0xAC00 && r <= 0xD7A3 {
+			t.Fatalf("pointer line mixes in Hangul: %q", tail)
+		}
 	}
 	if strings.Contains(mm, "<detail") || strings.Contains(mm, "DETAIL DETAIL") || strings.Contains(mm, "작업 내용") {
 		t.Fatalf("② carries a 작업 내용:\n%s", mm)
@@ -238,5 +246,57 @@ func TestLedgerRuleMatchesContractV0918(t *testing.T) {
 	}
 	if SurfaceFor("claude_code").LedgerRule != LedgerRuleMCP || SurfaceFor("hermes").LedgerRule != LedgerRule {
 		t.Error("(surface) SurfaceFor picked the wrong ledger line")
+	}
+}
+
+// #409 리뷰 J11: the overflow line, both surfaces — the shell one is the
+// contract's sentence (`… and N more — colab memory get --kind <k>`,
+// backticks aside), the mcp one names the tool in English (계약 해석 2).
+//
+// 회귀 주입: shellSurface 의 ledgerMore 를 바꾸면 (shell), mcp 를 셸 문장으로 두면
+// (mcp) FAIL.
+func TestLedgerOverflowLineBothSurfaces(t *testing.T) {
+	c := harnessContract(t)
+	m := regexp.MustCompile("`(… and N more — colab memory get --kind <k>)`").FindStringSubmatch(c)
+	if m == nil {
+		t.Fatal("harness.md has no v0.9.18 overflow sentence")
+	}
+	want := strings.NewReplacer("N", "5", "<k>", "fact").Replace(m[1])
+	render := func(s Surface) string {
+		var its []*memory.Item
+		for i := 0; i < memory.RenderKindMaxItems+5; i++ {
+			its = append(its, &memory.Item{ID: uuid.New(), Kind: "fact", Content: fmt.Sprint(i), Status: "active", CreatedAt: t0.Add(time.Duration(i) * time.Second)})
+		}
+		out := memory.Render(uuid.New(), its, t0, s.LedgerMore)
+		for _, l := range strings.Split(out, "\n") {
+			if strings.HasPrefix(l, "… and ") {
+				return l
+			}
+		}
+		return ""
+	}
+	if got := strings.ReplaceAll(render(SurfaceFor("hermes")), "`", ""); got != want {
+		t.Errorf("(shell) overflow line = %q, want %q", got, want)
+	}
+	if got := render(SurfaceFor("claude_code")); got != "… and 5 more — the `colab_memory_get` tool (`kind: \"fact\"`)" {
+		t.Errorf("(mcp) overflow line = %q", got)
+	}
+}
+
+// openapi v0.3.13 (#409 리뷰 NN3): a lesson's 30 days count from its last
+// reinforcement, not its first record.
+//
+// 회귀 주입: Rendered 가 created_at 을 다시 읽으면 FAIL.
+func TestLedgerLessonHalfLifeFromReinforcement(t *testing.T) {
+	f := newCtxFixture(t, false)
+	now := f.now()
+	recent := now.Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	stale := now.Add(-31 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	f.ledgerItem(t, "lesson", "OLD BUT REINFORCED", now.Add(-60*24*time.Hour), "last_reinforced_at='"+recent+"'")
+	f.ledgerItem(t, "lesson", "OLD AND STALE", now.Add(-60*24*time.Hour), "last_reinforced_at='"+stale+"'")
+	b := f.claim(t)
+	led := between(b.Prompt, "<mission_ledger ", "</mission_ledger>")
+	if !strings.Contains(led, "OLD BUT REINFORCED") || strings.Contains(led, "OLD AND STALE") {
+		t.Fatalf("half-life not from last_reinforced_at:\n%s", led)
 	}
 }

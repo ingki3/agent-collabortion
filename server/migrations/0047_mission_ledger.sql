@@ -7,8 +7,9 @@
 -- outcome·source·작성자·시각)은 고쳐 쓰지 않고, 상태 칸 셋(status · superseded_by · invalidated_at)만
 -- 바뀐다(대체·철회, PRD FR-4.6 1). 행은 지우지 않는다 — 미션이 지워질 때만 함께 간다.
 --
--- 예외 하나: lesson 의 support_count 는 같은 내용이 다시 기록될 때 그 행에서 +1 한다(새 행을 만들지
--- 않는다 — T-LEDGER 브리프, 「같은 내용을 가리키는 독립 항목 수」 PRD FR-4.6 표).
+-- 예외 하나: lesson 의 support_count 는 같은 내용을 **아직 기여하지 않은 다른 작성자**가 기록할 때 그 행에서
+-- +1 하고(support_author_ids 에 더하고 last_reinforced_at 을 그 시각으로), 새 행을 만들지 않는다(openapi v0.3.13 ·
+-- PRD v0.19.19 FR-4.6 「독립 항목 수」 — 같은 작성자의 재확인은 세지 않는다).
 CREATE TABLE memory_item (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     work_id             uuid NOT NULL REFERENCES work(id) ON DELETE CASCADE,
@@ -25,9 +26,13 @@ CREATE TABLE memory_item (
     -- 대체는 새 행의 id 를 옛 행에 먼저 적고 새 행을 넣는다(한 트랜잭션) — 그래서 지연 검사.
     superseded_by       uuid REFERENCES memory_item(id) DEFERRABLE INITIALLY DEFERRED,
     invalidated_at      timestamptz,
-    -- retireMemory 의 사유. MemoryItem 응답에는 칸이 없다(내용은 고쳐 쓰지 않는다 — 사유는 따로 남긴다).
+    -- retireMemory 의 사유(MemoryItem.retire_reason, openapi v0.3.13). 내용은 고쳐 쓰지 않는다 — 사유는 따로 남긴다.
     retire_reason       text,
     source_message_ids  uuid[] NOT NULL DEFAULT '{}',
+    -- lesson: 이 교훈에 기여한 작성자(에이전트 또는 사람 id) — 한 작성자는 한 번만 센다(support_count = 길이).
+    support_author_ids  uuid[] NOT NULL DEFAULT '{}',
+    -- lesson: 마지막으로 다른 작성자가 재확인한 시각(처음엔 created_at). 30일 렌더 제외는 이 칸 기준.
+    last_reinforced_at  timestamptz,
     -- created_by: 에이전트(task token) 또는 사람. 둘 다 비면 지워진 작성자.
     created_by_agent_id uuid REFERENCES agent(id) ON DELETE SET NULL,
     created_by_user_id  uuid REFERENCES app_user(id) ON DELETE SET NULL,

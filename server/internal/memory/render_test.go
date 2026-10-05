@@ -48,6 +48,12 @@ func TestLessonGate(t *testing.T) {
 	if !Rendered(young, now) {
 		t.Fatal("(29 days) a lesson inside 30 days is not rendered")
 	}
+	// openapi v0.3.13: the half-life counts from last_reinforced_at.
+	reinforced := now.Add(-time.Hour)
+	old.LastReinforcedAt = &reinforced
+	if !Rendered(old, now) {
+		t.Fatal("(reinforced) an old lesson reinforced an hour ago is not rendered")
+	}
 	// The fact is not subject to the half-life.
 	if !Rendered(item("fact", "x", now.Add(-365*24*time.Hour)), now) {
 		t.Fatal("(old fact) the half-life applies to a fact")

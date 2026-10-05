@@ -33,7 +33,8 @@ var RenderOrder = []string{
 
 // Rendered reports whether an active item reaches the turn prompt at now:
 // every active item does, except a lesson that is not promoted
-// (support_count < 2) or is older than LessonHalfLife (PRD FR-4.6 3).
+// (support_count < 2) or was last reinforced more than LessonHalfLife ago
+// (PRD FR-4.6 3; openapi v0.3.13 last_reinforced_at, not created_at).
 func Rendered(it *Item, now time.Time) bool {
 	if it.Status != string(gen.MemoryStatusActive) {
 		return false
@@ -41,7 +42,7 @@ func Rendered(it *Item, now time.Time) bool {
 	if it.Kind != string(gen.MemoryKindLesson) {
 		return true
 	}
-	return it.Promoted() && now.Sub(it.CreatedAt) <= LessonHalfLife
+	return it.Promoted() && now.Sub(*it.reinforcedAt()) <= LessonHalfLife
 }
 
 // Line is one item as the block writes it:
