@@ -268,7 +268,9 @@ const COLAB_COMMANDS: readonly ColabCommand[] = [
   "card_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info",
   "room_list", "room_read", "work_propose",
   "card_report", "card_accept", "card_revise", "card_get", "card_list",
+  "memory_note", "memory_supersede", "memory_retire", "memory_get",
 ];
+// v0.9.12 — 원장 넷(memory_note·memory_supersede·memory_retire·memory_get)은 모든 역할(§2.5) — 막는 표에 없다.
 // v0.9.10 — 카드 위임·판정(card_delegate·card_accept·card_revise)은 lead·custom 만, 결과·읽기(card_report·card_get·card_list)는 모두.
 const ROLE_DENIED: Record<Agent["role"], readonly ColabCommand[]> = {
   lead: [],

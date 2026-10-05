@@ -400,6 +400,10 @@ const (
 	ColabCommandHitlApproveRequest ColabCommand = "hitl_approve_request"
 	ColabCommandHitlAsk            ColabCommand = "hitl_ask"
 	ColabCommandHitlRequestInfo    ColabCommand = "hitl_request_info"
+	ColabCommandMemoryGet          ColabCommand = "memory_get"
+	ColabCommandMemoryNote         ColabCommand = "memory_note"
+	ColabCommandMemoryRetire       ColabCommand = "memory_retire"
+	ColabCommandMemorySupersede    ColabCommand = "memory_supersede"
 	ColabCommandMessagePost        ColabCommand = "message_post"
 	ColabCommandReviewApprove      ColabCommand = "review_approve"
 	ColabCommandReviewReject       ColabCommand = "review_reject"
@@ -437,6 +441,14 @@ func (e ColabCommand) Valid() bool {
 	case ColabCommandHitlAsk:
 		return true
 	case ColabCommandHitlRequestInfo:
+		return true
+	case ColabCommandMemoryGet:
+		return true
+	case ColabCommandMemoryNote:
+		return true
+	case ColabCommandMemoryRetire:
+		return true
+	case ColabCommandMemorySupersede:
 		return true
 	case ColabCommandMessagePost:
 		return true
@@ -1046,6 +1058,120 @@ func (e MemberRole) Valid() bool {
 	case MemberRoleMember:
 		return true
 	case MemberRoleOwner:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemoryCertainty.
+const (
+	MemoryCertaintyDerived  MemoryCertainty = "derived"
+	MemoryCertaintyGiven    MemoryCertainty = "given"
+	MemoryCertaintyGuess    MemoryCertainty = "guess"
+	MemoryCertaintyToVerify MemoryCertainty = "to_verify"
+)
+
+// Valid indicates whether the value is a known member of the MemoryCertainty enum.
+func (e MemoryCertainty) Valid() bool {
+	switch e {
+	case MemoryCertaintyDerived:
+		return true
+	case MemoryCertaintyGiven:
+		return true
+	case MemoryCertaintyGuess:
+		return true
+	case MemoryCertaintyToVerify:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemoryItemCreatedByKind.
+const (
+	MemoryItemCreatedByKindAgent MemoryItemCreatedByKind = "agent"
+	MemoryItemCreatedByKindUser  MemoryItemCreatedByKind = "user"
+)
+
+// Valid indicates whether the value is a known member of the MemoryItemCreatedByKind enum.
+func (e MemoryItemCreatedByKind) Valid() bool {
+	switch e {
+	case MemoryItemCreatedByKindAgent:
+		return true
+	case MemoryItemCreatedByKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemoryKind.
+const (
+	MemoryKindAssignment   MemoryKind = "assignment"
+	MemoryKindFact         MemoryKind = "fact"
+	MemoryKindLesson       MemoryKind = "lesson"
+	MemoryKindOpenQuestion MemoryKind = "open_question"
+	MemoryKindPlan         MemoryKind = "plan"
+	MemoryKindProgress     MemoryKind = "progress"
+)
+
+// Valid indicates whether the value is a known member of the MemoryKind enum.
+func (e MemoryKind) Valid() bool {
+	switch e {
+	case MemoryKindAssignment:
+		return true
+	case MemoryKindFact:
+		return true
+	case MemoryKindLesson:
+		return true
+	case MemoryKindOpenQuestion:
+		return true
+	case MemoryKindPlan:
+		return true
+	case MemoryKindProgress:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemoryOutcome.
+const (
+	Corrected MemoryOutcome = "corrected"
+	DeadEnd   MemoryOutcome = "dead_end"
+	Useful    MemoryOutcome = "useful"
+)
+
+// Valid indicates whether the value is a known member of the MemoryOutcome enum.
+func (e MemoryOutcome) Valid() bool {
+	switch e {
+	case Corrected:
+		return true
+	case DeadEnd:
+		return true
+	case Useful:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemoryStatus.
+const (
+	MemoryStatusActive     MemoryStatus = "active"
+	MemoryStatusRetired    MemoryStatus = "retired"
+	MemoryStatusSuperseded MemoryStatus = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the MemoryStatus enum.
+func (e MemoryStatus) Valid() bool {
+	switch e {
+	case MemoryStatusActive:
+		return true
+	case MemoryStatusRetired:
+		return true
+	case MemoryStatusSuperseded:
 		return true
 	default:
 		return false
@@ -2429,6 +2555,30 @@ func (e SetTaskStatusJSONBodyStatus) Valid() bool {
 	}
 }
 
+// Defines values for ListMemoryParamsStatus.
+const (
+	ListMemoryParamsStatusActive     ListMemoryParamsStatus = "active"
+	ListMemoryParamsStatusAll        ListMemoryParamsStatus = "all"
+	ListMemoryParamsStatusRetired    ListMemoryParamsStatus = "retired"
+	ListMemoryParamsStatusSuperseded ListMemoryParamsStatus = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the ListMemoryParamsStatus enum.
+func (e ListMemoryParamsStatus) Valid() bool {
+	switch e {
+	case ListMemoryParamsStatusActive:
+		return true
+	case ListMemoryParamsStatusAll:
+		return true
+	case ListMemoryParamsStatusRetired:
+		return true
+	case ListMemoryParamsStatusSuperseded:
+		return true
+	default:
+		return false
+	}
+}
+
 // ActivityLogEntry `activity_log` 한 행(S15, 감사). payload 는 워크스페이스 마스킹 설정을 따른다.
 type ActivityLogEntry struct {
 	// Action 예: `room.read` · `room.read.denied` · `room.blocked` · `room_link.created` · `room.owner_succeeded` · `room.deleted` · `room.audit_viewed`.
@@ -2986,7 +3136,7 @@ type ColabCLI struct {
 	Version string `json:"version"`
 }
 
-// ColabCommand colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose. v0.3.0(R4): session_get·session_messages → room_get·room_messages. v0.3.10(PRD FR-3.8): `lane_delegate` → `card_delegate`(위임은 카드로만), `card_report`·`card_accept`·`card_revise`·`card_get`·`card_list` 추가. 질문 task 는 역할 표 ∩ 질문 표(`room_get`·`room_messages`·`room_list`·`room_read`·`artifact_get`·`card_get`·`card_list`·`message_post`·`status_set`·`hitl_ask`) — colab-cli.md §2.5.
+// ColabCommand colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose. v0.3.0(R4): session_get·session_messages → room_get·room_messages. v0.3.10(PRD FR-3.8): `lane_delegate` → `card_delegate`(위임은 카드로만), `card_report`·`card_accept`·`card_revise`·`card_get`·`card_list` 추가. 질문 task 는 역할 표 ∩ 질문 표(`room_get`·`room_messages`·`room_list`·`room_read`·`artifact_get`·`card_get`·`card_list`·`message_post`·`status_set`·`hitl_ask`) — colab-cli.md §2.5. v0.3.12(PRD FR-4.6, 맥락 2단계): `memory_note`·`memory_supersede`·`memory_retire`·`memory_get` 추가 — `memory_note`·`memory_supersede` 는 모든 역할이 쓸 수 있지만 `kind: plan`·`progress` 는 서버가 호출자 역할로 한 번 더 막는다(`403 memory_kind_forbidden`).
 type ColabCommand string
 
 // CompletionAtom defines model for CompletionAtom.
@@ -3607,6 +3757,70 @@ type Member struct {
 
 // MemberRole `member_role`
 type MemberRole string
+
+// MemoryCertainty `kind: fact` 전용 — 확실도(Magentic-One facts 4분류 참고).
+type MemoryCertainty string
+
+// MemoryItem defines model for MemoryItem.
+type MemoryItem struct {
+	Certainty nullable.Nullable[MemoryCertainty] `json:"certainty,omitempty"`
+	Content   string                             `json:"content"`
+	CreatedAt time.Time                          `json:"created_at"`
+	CreatedBy struct {
+		Id   openapi_types.UUID      `json:"id"`
+		Kind MemoryItemCreatedByKind `json:"kind"`
+		Name string                  `json:"name"`
+	} `json:"created_by"`
+	Id            openapi_types.UUID           `json:"id"`
+	InvalidatedAt nullable.Nullable[time.Time] `json:"invalidated_at,omitempty"`
+
+	// Kind `memory_item.kind`. `plan`·`progress` 는 쓰기가 lead·사람으로 제한된다(PRD FR-4.6 2).
+	Kind MemoryKind `json:"kind"`
+
+	// LastReinforcedAt v0.3.13 — `kind: lesson` 만: 마지막으로 다른 에이전트가 같은 내용을 재확인한 시각(없으면 `created_at` 과 같다). 30일 렌더 제외 판정은 이 칸을 쓴다(`created_at` 이 아니다) — 오늘 재확인된 교훈이 첫 기록이 오래됐다고 사라지지 않게(#409 리뷰 NN3).
+	LastReinforcedAt nullable.Nullable[string]        `json:"last_reinforced_at,omitempty"`
+	Outcome          nullable.Nullable[MemoryOutcome] `json:"outcome,omitempty"`
+
+	// Promoted kind=lesson 이 support_count ≥2 로 렌더 대상인가. 그 밖은 항상 true.
+	Promoted *bool `json:"promoted,omitempty"`
+
+	// RetireReason v0.3.13 — `status: retired` 면 `retireMemory` 의 `reason`(#409 리뷰 NN4 — 응답에 없어 아무도 철회 사유를 못 봤다). 그 밖은 null.
+	RetireReason     nullable.Nullable[string]             `json:"retire_reason,omitempty"`
+	SourceMessageIds *[]openapi_types.UUID                 `json:"source_message_ids,omitempty"`
+	Status           MemoryStatus                          `json:"status"`
+	SupersededBy     nullable.Nullable[openapi_types.UUID] `json:"superseded_by,omitempty"`
+	Supersedes       nullable.Nullable[openapi_types.UUID] `json:"supersedes,omitempty"`
+
+	// SupportCount kind=lesson 만 1 이상. 그 밖은 0.
+	SupportCount int                `json:"support_count"`
+	WorkId       openapi_types.UUID `json:"work_id"`
+}
+
+// MemoryItemCreatedByKind defines model for MemoryItem.CreatedBy.Kind.
+type MemoryItemCreatedByKind string
+
+// MemoryItemInput defines model for MemoryItemInput.
+type MemoryItemInput struct {
+	// Certainty kind=fact 가 아니면 무시.
+	Certainty nullable.Nullable[MemoryCertainty] `json:"certainty,omitempty"`
+	Content   string                             `json:"content"`
+
+	// Kind `memory_item.kind`. `plan`·`progress` 는 쓰기가 lead·사람으로 제한된다(PRD FR-4.6 2).
+	Kind MemoryKind `json:"kind"`
+
+	// Outcome kind=lesson 가 아니면 무시.
+	Outcome          nullable.Nullable[MemoryOutcome] `json:"outcome,omitempty"`
+	SourceMessageIds *[]openapi_types.UUID            `json:"source_message_ids,omitempty"`
+}
+
+// MemoryKind `memory_item.kind`. `plan`·`progress` 는 쓰기가 lead·사람으로 제한된다(PRD FR-4.6 2).
+type MemoryKind string
+
+// MemoryOutcome `kind: lesson` 전용.
+type MemoryOutcome string
+
+// MemoryStatus defines model for MemoryStatus.
+type MemoryStatus string
 
 // Mention `message.mentions[]` 정규화 원소(FR-3.2). 본문에는 원문 링크 `[@표시명](mention://agent/<id>)`가 그대로 남는다.
 type Mention struct {
@@ -5309,6 +5523,9 @@ type Limit = int
 // MemberId defines model for MemberId.
 type MemberId = openapi_types.UUID
 
+// MemoryId defines model for MemoryId.
+type MemoryId = openapi_types.UUID
+
 // MessageId defines model for MessageId.
 type MessageId = openapi_types.UUID
 
@@ -5504,6 +5721,24 @@ type RestartLaneParams struct {
 // SetLaneSubscriptionJSONBody defines parameters for SetLaneSubscription.
 type SetLaneSubscriptionJSONBody struct {
 	Enabled bool `json:"enabled"`
+}
+
+// RetireMemoryJSONBody defines parameters for RetireMemory.
+type RetireMemoryJSONBody struct {
+	Reason string `json:"reason"`
+}
+
+// SupersedeMemoryJSONBody defines parameters for SupersedeMemory.
+type SupersedeMemoryJSONBody struct {
+	Certainty        nullable.Nullable[MemoryCertainty] `json:"certainty,omitempty"`
+	Content          string                             `json:"content"`
+	SourceMessageIds *[]openapi_types.UUID              `json:"source_message_ids,omitempty"`
+}
+
+// SupersedeMemoryParams defines parameters for SupersedeMemory.
+type SupersedeMemoryParams struct {
+	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
+	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
 }
 
 // ListArtifactsParams defines parameters for ListArtifacts.
@@ -5813,6 +6048,21 @@ type ChangeWorkDirectorJSONBody struct {
 	DirectorUserId openapi_types.UUID                    `json:"director_user_id"`
 }
 
+// ListMemoryParams defines parameters for ListMemory.
+type ListMemoryParams struct {
+	Kind   *MemoryKind             `form:"kind,omitempty" json:"kind,omitempty"`
+	Status *ListMemoryParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListMemoryParamsStatus defines parameters for ListMemory.
+type ListMemoryParamsStatus string
+
+// NoteMemoryParams defines parameters for NoteMemory.
+type NoteMemoryParams struct {
+	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
+	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
+}
+
 // ResumeWorkJSONBody defines parameters for ResumeWork.
 type ResumeWorkJSONBody struct {
 	// Limits 미션 한도(FR-2A.3). 비우면 방 한도를 따른다.
@@ -6041,6 +6291,12 @@ type SetLaneSubscriptionJSONRequestBody SetLaneSubscriptionJSONBody
 // UpdateNotificationSettingsJSONRequestBody defines body for UpdateNotificationSettings for application/json ContentType.
 type UpdateNotificationSettingsJSONRequestBody = NotificationSettings
 
+// RetireMemoryJSONRequestBody defines body for RetireMemory for application/json ContentType.
+type RetireMemoryJSONRequestBody RetireMemoryJSONBody
+
+// SupersedeMemoryJSONRequestBody defines body for SupersedeMemory for application/json ContentType.
+type SupersedeMemoryJSONRequestBody SupersedeMemoryJSONBody
+
 // UpdateRoomJSONRequestBody defines body for UpdateRoom for application/json ContentType.
 type UpdateRoomJSONRequestBody = RoomUpdate
 
@@ -6121,6 +6377,9 @@ type CompleteWorkJSONRequestBody CompleteWorkJSONBody
 
 // ChangeWorkDirectorJSONRequestBody defines body for ChangeWorkDirector for application/json ContentType.
 type ChangeWorkDirectorJSONRequestBody ChangeWorkDirectorJSONBody
+
+// NoteMemoryJSONRequestBody defines body for NoteMemory for application/json ContentType.
+type NoteMemoryJSONRequestBody = MemoryItemInput
 
 // ResumeWorkJSONRequestBody defines body for ResumeWork for application/json ContentType.
 type ResumeWorkJSONRequestBody ResumeWorkJSONBody
@@ -6823,6 +7082,12 @@ type ServerInterface interface {
 	// UpdateNotificationSettings 알림 설정 변경
 	// (PATCH /me/notification-settings)
 	UpdateNotificationSettings(w http.ResponseWriter, r *http.Request)
+	// RetireMemory 원장 항목 철회, 대체 없이(`colab memory retire`)
+	// (POST /memory/{memoryId}/retire)
+	RetireMemory(w http.ResponseWriter, r *http.Request, memoryId MemoryId)
+	// SupersedeMemory 원장 항목을 새 항목으로 대체(`colab memory supersede`)
+	// (POST /memory/{memoryId}/supersede)
+	SupersedeMemory(w http.ResponseWriter, r *http.Request, memoryId MemoryId, params SupersedeMemoryParams)
 	// GetMessage 메시지 하나(인박스 `mention` · `lane_blocked` 카드에서 이동)
 	// (GET /messages/{messageId})
 	GetMessage(w http.ResponseWriter, r *http.Request, messageId MessageId)
@@ -7006,6 +7271,12 @@ type ServerInterface interface {
 	// ChangeWorkDirector 미션 Director 교체
 	// (PUT /works/{workId}/director)
 	ChangeWorkDirector(w http.ResponseWriter, r *http.Request, workId WorkId)
+	// ListMemory 미션 상태 원장 읽기(`colab memory get`)
+	// (GET /works/{workId}/memory)
+	ListMemory(w http.ResponseWriter, r *http.Request, workId WorkId, params ListMemoryParams)
+	// NoteMemory 원장에 새 항목(`colab memory note`)
+	// (POST /works/{workId}/memory)
+	NoteMemory(w http.ResponseWriter, r *http.Request, workId WorkId, params NoteMemoryParams)
 	// PauseWork 미션 일시정지
 	// (POST /works/{workId}/pause)
 	PauseWork(w http.ResponseWriter, r *http.Request, workId WorkId)
@@ -8282,6 +8553,82 @@ func (siw *ServerInterfaceWrapper) UpdateNotificationSettings(w http.ResponseWri
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateNotificationSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RetireMemory operation middleware
+func (siw *ServerInterfaceWrapper) RetireMemory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "memoryId" -------------
+	var memoryId MemoryId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "memoryId", r.PathValue("memoryId"), &memoryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "memoryId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RetireMemory(w, r, memoryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SupersedeMemory operation middleware
+func (siw *ServerInterfaceWrapper) SupersedeMemory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "memoryId" -------------
+	var memoryId MemoryId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "memoryId", r.PathValue("memoryId"), &memoryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "memoryId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SupersedeMemoryParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKeyOptional
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SupersedeMemory(w, r, memoryId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10847,6 +11194,111 @@ func (siw *ServerInterfaceWrapper) ChangeWorkDirector(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// ListMemory operation middleware
+func (siw *ServerInterfaceWrapper) ListMemory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workId" -------------
+	var workId WorkId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workId", r.PathValue("workId"), &workId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMemoryParams
+
+	// ------------- Optional query parameter "kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMemory(w, r, workId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// NoteMemory operation middleware
+func (siw *ServerInterfaceWrapper) NoteMemory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workId" -------------
+	var workId WorkId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workId", r.PathValue("workId"), &workId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params NoteMemoryParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKeyOptional
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.NoteMemory(w, r, workId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PauseWork operation middleware
 func (siw *ServerInterfaceWrapper) PauseWork(w http.ResponseWriter, r *http.Request) {
 
@@ -12547,6 +12999,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/works/{workId}", wrapper.DeleteWork)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/works/{workId}", wrapper.GetWork)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/works/{workId}", wrapper.UpdateWork)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/works/{workId}/memory", wrapper.ListMemory)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/works/{workId}/memory", wrapper.NoteMemory)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/memory/{memoryId}/supersede", wrapper.SupersedeMemory)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/memory/{memoryId}/retire", wrapper.RetireMemory)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/works/{workId}/pause", wrapper.PauseWork)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/works/{workId}/resume", wrapper.ResumeWork)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/works/{workId}/complete", wrapper.CompleteWork)

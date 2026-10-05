@@ -29,15 +29,18 @@ import (
 //	                                        are empty since v0.9.14)
 //	prompt.rebind · prompt.resumed · prompt.delta_head · prompt.truncation_note
 //	prompt.history                          ① the room's latest messages
-//	prompt.mission_messages                 ② the rest of the mission
+//	prompt.mission_messages                 ② the rest of the mission (a
+//	                                        header index since v0.9.18)
+//	prompt.mission_ledger                   <mission_ledger> (v0.9.18)
 //	prompt.room_decisions · prompt.room_summary   ③
 //	prompt.room_artifacts · prompt.reused_context (the old brief [6])
 //	prompt.mission_progress · prompt.roster_status · prompt.folders
 //	prompt.trigger · prompt.respond
 //
 // and the "/" keys are PARTS of the block before the slash (already counted
-// in it): prompt.history/detail, prompt.mission_messages/detail,
-// prompt.trigger/detail — the 작업 내용 each block carries. For a resumed
+// in it): prompt.history/detail, prompt.trigger/detail — the 작업 내용
+// each block carries (② has no detail since v0.9.18: it is one line per
+// message). For a resumed
 // turn's delta the sections measure `prompt` (the delta); counts carry
 // delta=1 and prompt_cold_bytes, and session_start_tokens / session_capped
 // record the §6 decision.

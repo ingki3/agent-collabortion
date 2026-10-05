@@ -254,6 +254,11 @@ func TestContextMetricMeasuresTheThreeHistoryBundles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// harness v0.9.18: one ledger item, so <mission_ledger> is measured too.
+	if _, err := q.DB.Exec(ctx, `INSERT INTO memory_item (work_id, kind, content, certainty, created_at)
+		VALUES ((SELECT legacy_work_id FROM room WHERE id = $1), 'fact', 'the API key lives in vault', 'given', $2)`, s.SessionID, t0); err != nil {
+		t.Fatal(err)
+	}
 	c.Advance(time.Hour)
 	bundles, err := q.Claim(ctx, s.RuntimeID.String(), 1, c.Now())
 	if err != nil || len(bundles) != 1 {
@@ -272,16 +277,20 @@ func TestContextMetricMeasuresTheThreeHistoryBundles(t *testing.T) {
 	if err := q.DB.QueryRow(ctx, `SELECT count(*) FROM message WHERE session_id = $1`, s.SessionID).Scan(&total); err != nil {
 		t.Fatal(err)
 	}
-	if m.Counts["history"] != 50 || m.Counts["history_total"] != total || m.Counts["mission_messages"] != total-50 || m.Counts["room_decisions"] != 25 {
-		t.Fatalf("counts = %v, want history 50 of %d, mission %d, decisions 25", m.Counts, total, total-50)
+	if m.Counts["history"] != 50 || m.Counts["history_total"] != total || m.Counts["mission_messages"] != total-50 || m.Counts["room_decisions"] != 25 || m.Counts["mission_ledger"] != 1 {
+		t.Fatalf("counts = %v, want history 50 of %d, mission %d, decisions 25, ledger 1", m.Counts, total, total-50)
 	}
-	for _, k := range []string{"prompt.truncation_note", "prompt.mission_messages", "prompt.room_decisions",
-		"prompt.history/detail", "prompt.mission_messages/detail"} {
+	for _, k := range []string{"prompt.truncation_note", "prompt.mission_messages", "prompt.mission_ledger", "prompt.room_decisions",
+		"prompt.history/detail"} {
 		if m.Sections[k].Bytes == 0 {
 			t.Errorf("section %s not measured (%v)", k, cm.keys())
 		}
 	}
-	for _, k := range []string{"history", "mission_messages"} {
+	// harness v0.9.18: ② is a header index — it carries no 작업 내용.
+	if m.Sections["prompt.mission_messages/detail"].Bytes != 0 {
+		t.Errorf("② still measures a detail part: %v", m.Sections["prompt.mission_messages/detail"])
+	}
+	for _, k := range []string{"history"} {
 		part, whole := m.Sections["prompt."+k+"/detail"].Bytes, m.Sections["prompt."+k].Bytes
 		if part >= whole {
 			t.Errorf("%s detail %d bytes is not a part of the block's %d", k, part, whole)

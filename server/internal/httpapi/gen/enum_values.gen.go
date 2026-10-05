@@ -25,4 +25,8 @@ var ColabCommandValues = []ColabCommand{
 	ColabCommandCardRevise,
 	ColabCommandCardGet,
 	ColabCommandCardList,
+	ColabCommandMemoryNote,
+	ColabCommandMemorySupersede,
+	ColabCommandMemoryRetire,
+	ColabCommandMemoryGet,
 }

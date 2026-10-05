@@ -2146,6 +2146,79 @@ export interface paths {
         patch: operations["updateWork"];
         trace?: never;
     };
+    "/works/{workId}/memory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 미션 상태 원장 읽기(`colab memory get`)
+         * @description 권한: 워크스페이스 멤버(방 읽기 권한) · `TaskToken`(그 미션).
+         *     v0.3.12(PRD FR-4.6, 맥락 2단계). `status=active` 만 기본, `kind` 로 좁힌다. `lesson` 은 `support_count` ≥2 인 것만 포함(렌더 규칙과 같은 문턱 — 미만은 쿼리에 잡히되 `promoted: false`). 오래된 것부터.
+         */
+        get: operations["listMemory"];
+        put?: never;
+        /**
+         * 원장에 새 항목(`colab memory note`)
+         * @description 권한: `TaskToken`(그 미션의 task). `kind` 가 `plan`·`progress` 면 호출자 역할이 `lead` 가 아닐 때 `403 memory_kind_forbidden`(FR-1.9.1 표 밖 — 역할 K-19 표와 별개로 서버가 kind 단위로 검사). `plan` 은 미션당 `active` 1개 — 새로 쓰면 이전 `active` plan 이 자동으로 `superseded_by` 이 항목.
+         *     **`kind: lesson` 병합(v0.3.13, #409 리뷰 해석)**: 같은 미션·`status: active`·`content`(trim 후 완전 일치)인 기존 항목이 있으면 새 행을 만들지 않고 `200`으로 그 항목을 반환한다 — 단 **`created_by` 가 기존에 그 항목에 기여한 적 없는 에이전트일 때만** `support_count` +1·`last_reinforced_at` 갱신(같은 에이전트의 재확인은 세지 않는다 — PRD FR-4.6 「독립 항목」). 새 행이면 `201`.
+         */
+        post: operations["noteMemory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/memory/{memoryId}/supersede": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memoryId: components["parameters"]["MemoryId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 원장 항목을 새 항목으로 대체(`colab memory supersede`)
+         * @description 권한: `TaskToken`(그 미션의 task) · `noteMemory` 와 같은 kind 검사. 대상이 이미 `active` 가 아니면 `409 memory_not_active`.
+         *     v0.3.12. 새 `MemoryItem` 을 만들어 `supersedes` = 대상, 대상은 `status: superseded`·`superseded_by` = 새 항목으로 갱신한다. **대상 행은 고치지 않는다** — 새 행만 추가(Graphiti 이중 시간·Mem0 ADD-only 참고, PRD FR-4.6). `kind`·`work_id` 는 대상에서 물려받는다(본문에 주면 `422 kind_immutable`).
+         */
+        post: operations["supersedeMemory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/memory/{memoryId}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memoryId: components["parameters"]["MemoryId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 원장 항목 철회, 대체 없이(`colab memory retire`)
+         * @description 권한: `supersedeMemory` 와 같다. 대상을 `status: retired`·`invalidated_at` = now 로. 삭제하지 않는다(`listMemory` 의 `status=all` 로는 계속 보인다).
+         */
+        post: operations["retireMemory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/works/{workId}/pause": {
         parameters: {
             query?: never;
@@ -2528,10 +2601,10 @@ export interface components {
          */
         AgentRole: "lead" | "researcher" | "writer" | "engineer" | "reviewer" | "custom";
         /**
-         * @description colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose. v0.3.0(R4): session_get·session_messages → room_get·room_messages. v0.3.10(PRD FR-3.8): `lane_delegate` → `card_delegate`(위임은 카드로만), `card_report`·`card_accept`·`card_revise`·`card_get`·`card_list` 추가. 질문 task 는 역할 표 ∩ 질문 표(`room_get`·`room_messages`·`room_list`·`room_read`·`artifact_get`·`card_get`·`card_list`·`message_post`·`status_set`·`hitl_ask`) — colab-cli.md §2.5.
+         * @description colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose. v0.3.0(R4): session_get·session_messages → room_get·room_messages. v0.3.10(PRD FR-3.8): `lane_delegate` → `card_delegate`(위임은 카드로만), `card_report`·`card_accept`·`card_revise`·`card_get`·`card_list` 추가. 질문 task 는 역할 표 ∩ 질문 표(`room_get`·`room_messages`·`room_list`·`room_read`·`artifact_get`·`card_get`·`card_list`·`message_post`·`status_set`·`hitl_ask`) — colab-cli.md §2.5. v0.3.12(PRD FR-4.6, 맥락 2단계): `memory_note`·`memory_supersede`·`memory_retire`·`memory_get` 추가 — `memory_note`·`memory_supersede` 는 모든 역할이 쓸 수 있지만 `kind: plan`·`progress` 는 서버가 호출자 역할로 한 번 더 막는다(`403 memory_kind_forbidden`).
          * @enum {string}
          */
-        ColabCommand: "room_get" | "room_messages" | "artifact_get" | "message_post" | "status_set" | "decision_record" | "card_delegate" | "artifact_submit" | "review_approve" | "review_reject" | "hitl_ask" | "hitl_approve_request" | "hitl_request_info" | "room_list" | "room_read" | "work_propose" | "card_report" | "card_accept" | "card_revise" | "card_get" | "card_list";
+        ColabCommand: "room_get" | "room_messages" | "artifact_get" | "message_post" | "status_set" | "decision_record" | "card_delegate" | "artifact_submit" | "review_approve" | "review_reject" | "hitl_ask" | "hitl_approve_request" | "hitl_request_info" | "room_list" | "room_read" | "work_propose" | "card_report" | "card_accept" | "card_revise" | "card_get" | "card_list" | "memory_note" | "memory_supersede" | "memory_retire" | "memory_get";
         /**
          * @description `agent_status` — 저장하지 않고 FR-1.3 순서로 파생한다.
          * @enum {string}
@@ -4378,6 +4451,68 @@ export interface components {
             /** Format: date-time */
             reviewed_at: string;
         };
+        /**
+         * @description `memory_item.kind`. `plan`·`progress` 는 쓰기가 lead·사람으로 제한된다(PRD FR-4.6 2).
+         * @enum {string}
+         */
+        MemoryKind: "fact" | "assignment" | "open_question" | "lesson" | "plan" | "progress";
+        /**
+         * @description `kind: fact` 전용 — 확실도(Magentic-One facts 4분류 참고).
+         * @enum {string}
+         */
+        MemoryCertainty: "given" | "to_verify" | "derived" | "guess";
+        /**
+         * @description `kind: lesson` 전용.
+         * @enum {string}
+         */
+        MemoryOutcome: "dead_end" | "corrected" | "useful";
+        /** @enum {string} */
+        MemoryStatus: "active" | "superseded" | "retired";
+        MemoryItemInput: {
+            kind: components["schemas"]["MemoryKind"];
+            content: string;
+            /** @description kind=fact 가 아니면 무시. */
+            certainty?: components["schemas"]["MemoryCertainty"] | null;
+            /** @description kind=lesson 가 아니면 무시. */
+            outcome?: components["schemas"]["MemoryOutcome"] | null;
+            /** @default [] */
+            source_message_ids?: string[];
+        };
+        MemoryItem: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            work_id: string;
+            kind: components["schemas"]["MemoryKind"];
+            content: string;
+            certainty?: components["schemas"]["MemoryCertainty"] | null;
+            outcome?: components["schemas"]["MemoryOutcome"] | null;
+            /** @description kind=lesson 만 1 이상. 그 밖은 0. */
+            support_count: number;
+            /** @description kind=lesson 이 support_count ≥2 로 렌더 대상인가. 그 밖은 항상 true. */
+            promoted?: boolean;
+            status: components["schemas"]["MemoryStatus"];
+            /** Format: uuid */
+            supersedes?: string | null;
+            /** Format: uuid */
+            superseded_by?: string | null;
+            /** Format: date-time */
+            invalidated_at?: string | null;
+            /** @description v0.3.13 — `status: retired` 면 `retireMemory` 의 `reason`(#409 리뷰 NN4 — 응답에 없어 아무도 철회 사유를 못 봤다). 그 밖은 null. */
+            retire_reason?: string | null;
+            source_message_ids?: string[];
+            created_by: {
+                /** @enum {string} */
+                kind: "agent" | "user";
+                /** Format: uuid */
+                id: string;
+                name: string;
+            };
+            /** Format: date-time */
+            created_at: string;
+            /** @description v0.3.13 — `kind: lesson` 만: 마지막으로 다른 에이전트가 같은 내용을 재확인한 시각(없으면 `created_at` 과 같다). 30일 렌더 제외 판정은 이 칸을 쓴다(`created_at` 이 아니다) — 오늘 재확인된 교훈이 첫 기록이 오래됐다고 사라지지 않게(#409 리뷰 NN3). */
+            last_reinforced_at?: string | null;
+        };
         Decision: {
             /** Format: uuid */
             id: string;
@@ -5279,6 +5414,7 @@ export interface components {
         TestChatId: string;
         /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
         RoomId: string;
+        MemoryId: string;
         WorkId: string;
         WorkProposalId: string;
         RoomLinkId: string;
@@ -8792,6 +8928,152 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listMemory: {
+        parameters: {
+            query?: {
+                kind?: components["schemas"]["MemoryKind"];
+                status?: "active" | "superseded" | "retired" | "all";
+            };
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 목록. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryItem"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    noteMemory: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyOptional"];
+            };
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryItemInput"];
+            };
+        };
+        responses: {
+            /** @description v0.3.13 — `kind: lesson` 병합(새 행을 안 만들고 기존 항목을 돌려줌). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryItem"];
+                };
+            };
+            /** @description 저장됨(새 행). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryItem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    supersedeMemory: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyOptional"];
+            };
+            path: {
+                memoryId: components["parameters"]["MemoryId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    content: string;
+                    certainty?: components["schemas"]["MemoryCertainty"] | null;
+                    /** @default [] */
+                    source_message_ids?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description 새 항목(옛 항목의 `superseded_by` 도 갱신). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        item: components["schemas"]["MemoryItem"];
+                        superseded: components["schemas"]["MemoryItem"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    retireMemory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memoryId: components["parameters"]["MemoryId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description 철회됨. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryItem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             default: components["responses"]["Problem"];
         };
     };

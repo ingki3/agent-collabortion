@@ -51,6 +51,7 @@ var prdTables = []string{
 	"task_context_metric",
 	// task_cards — 작업 카드(PRD v0.19.15 FR-3.8, T-CARD-S): 위임 카드·결과 카드·판정.
 	"task_card",
+	"memory_item", // T-LEDGER (PRD FR-4.6, 맥락 2단계)
 }
 
 // prdEnums pins every state set to the exact PRD labels (task item 2).

@@ -24,6 +24,7 @@ import { registerConversationSeed } from "./conversation-seed";
 import { registerPartsSeed } from "./parts-seed";
 import { registerWorkingSeed } from "./working-seed";
 import { registerCards } from "./cards";
+import { registerMemory } from "./memory";
 import { applySpeech, type SpeechPremises } from "./speech";
 import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, SEED, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
@@ -88,6 +89,8 @@ registerCards({
   workPeople: (s, id) => { const w = workView(s, id); return w ? { director: w.director_user_id, deputy: w.deputy_user_id ?? null, roomId: w.room_id } : null; },
   openWorkOf: (s, roomId) => roomWorks(s, { id: roomId }).find((w) => OPEN_WORK.has(w.status))?.id ?? null,
 });
+// 미션 상태 원장(v0.3.12, PRD FR-4.6) — 원장 op 넷 · 시드(`seed-memory`). 본문은 ./memory.ts(등록 한 줄만).
+registerMemory({ on, Problem, requireUser, workGate: (s, req, id) => void workGate(s, req, id) });
 
 export async function dispatch(req: Req): Promise<Res> {
   for (const r of routes) {

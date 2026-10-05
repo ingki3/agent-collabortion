@@ -19,6 +19,7 @@ import { emit, makeAgent, now, store, uuid, type MockTask, type Store } from "./
 import type { Req, Res } from "./handlers";
 import type { SpeechPremises } from "./speech";
 import { storeArtifact } from "./media";
+import { seedMemory } from "./memory";
 import { CARD_MOCK, CARD_SEED, VALIDATION_DETAIL } from "./wording";
 import { visibleText } from "@/lib/cards";
 
@@ -389,6 +390,8 @@ export function registerCards(ctx: CardsCtx): void {
     tq.status = "completed";
 
     const cards = Object.fromEntries([d1, d2, d3, d4, d5].map((d) => [d.card.label, d.card.id]));
+    // 미션 상태 원장(v0.3.12) — 같은 미션에 원장도 깔아 「원장」 탭이 서게 한다(`memory.ts` seedMemory, 미션 밖 시드면 없음).
+    if (workId) seedMemory(s, workId, [lead, researcher, designer].map(agentAs));
     return ok({ work_id: workId, cards, messages: { order: order.id, question: q.id, answer: ans.id, c3_result: d3.card.result?.message_id, c5_v2: r5.message.id } }, 201);
   });
 }

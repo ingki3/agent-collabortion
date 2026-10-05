@@ -47,6 +47,11 @@ var commandVerbs = map[gen.ColabCommand]string{
 	// command is one verb; the reads are `read` like the others.
 	gen.ColabCommandCardReport: "card", gen.ColabCommandCardAccept: "card", gen.ColabCommandCardRevise: "card",
 	gen.ColabCommandCardGet: "read", gen.ColabCommandCardList: "read",
+	// v0.9.12 (PRD FR-4.6): the schema has no ledger verb and is closed, so
+	// the three writes ride on `update` (handlers_memory.go memoryVerb) and
+	// the read is `read`.
+	gen.ColabCommandMemoryNote: memoryVerb, gen.ColabCommandMemorySupersede: memoryVerb, gen.ColabCommandMemoryRetire: memoryVerb,
+	gen.ColabCommandMemoryGet: "read",
 }
 
 // commandAllowed answers nil when the caller may run cmd. For a task token

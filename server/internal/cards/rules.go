@@ -489,7 +489,7 @@ func ParseLabel(s string) (int, bool) {
 // in it with values working · blocked only (QuestionStatusAllowed).
 var QuestionCommands = []string{
 	"room_get", "room_messages", "room_list", "room_read", "artifact_get",
-	"card_get", "card_list", "message_post", "status_set", "hitl_ask",
+	"card_get", "card_list", "memory_get", "message_post", "status_set", "hitl_ask",
 }
 
 // InQuestionTable reports whether cmd is in the question table.

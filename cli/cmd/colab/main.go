@@ -13,6 +13,7 @@
 // allowed_commands is refused before any request with exit 3
 // command_not_allowed; `mcp serve --allow` registers only the allowed tools.
 // v0.19 R3 (colab-cli.md v0.8 §2.4a): room list · room read · work propose.
+// v0.9.12: memory note · supersede · retire · get (the mission ledger).
 // v0.19 R4 (colab-cli.md v0.9): `colab session get|messages` are gone —
 // room get · room messages are the commands, and every path is /rooms/{R}/….
 // Output is always JSON on stdout (agents parse it); --json is accepted for
@@ -79,6 +80,19 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              the result card of the card you were handed, before status set done
   colab card accept <C-n|id> --comment <text> | revise <C-n|id> --reason <text> [--file <patch.json>]
   colab card get <C-n|id> | list
+  colab memory note --kind <k> --content <text> [--certainty <c>] [--outcome <o>] [--source <msg_id>,...]
+                             a new item on this mission's ledger (the mission's shared state). --kind:
+                             fact · assignment · open_question · lesson · plan · progress (plan and
+                             progress: lead only). --certainty only with fact (given · to_verify ·
+                             derived · guess), --outcome only with lesson (dead_end · corrected · useful).
+                             Outside a mission (no COLAB_WORK_ID) exit 3 no_mission
+  colab memory supersede <id> --content <text> [--source <msg_id>,...]
+                             replace an item with a new one (kind and certainty come from the target;
+                             a target no longer active is exit 3 memory_not_active)
+  colab memory retire <id> --reason <text>
+                             withdraw an item without a replacement
+  colab memory get [--kind <k>] [--work <id>] [--status active|superseded|retired|all]
+                             the ledger (default: this turn's mission, active items)
   colab decision record --summary <s> [--rationale <r>]
   colab artifact submit --type <t> --file <p> [--name <n>] [--description <d>]
   colab artifact submit --type diff [--base <rev>] [--name <n>] [--description <d>]
@@ -157,6 +171,8 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 		return runCard(args[1:], getenv, stdout, stderr)
 	case "status":
 		return runStatus(args[1:], getenv, stdout, stderr)
+	case "memory":
+		return runMemory(args[1:], getenv, stdout, stderr)
 	case "decision":
 		return runDecision(args[1:], getenv, stdout, stderr)
 	case "artifact":
@@ -203,7 +219,7 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 		return client.ExitOK
 	}
 	return usage(stderr, "colab: unknown command %q "+
-		"(room · message · status · card · decision · artifact · review · hitl · work · mcp · version)", args[0])
+		"(room · message · status · card · memory · decision · artifact · review · hitl · work · mcp · version)", args[0])
 }
 
 func usage(stderr io.Writer, format string, a ...any) int {

@@ -65,7 +65,7 @@ import {
   ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_TABS, SUMMARY_PICK, WORK_CHIPS, WORK_SELECTOR, roomDefaultsLine,
 } from "@/lib/wording";
 import type {
-  Agent, Artifact, CardBoard, CardBoardItem, CardRef, Decision, HitlRequest, HitlResponse, Lane, LaneStatus, Member, Message, Room, RoomParticipant, Runtime,
+  Agent, Artifact, CardBoard, CardBoardItem, CardRef, Decision, HitlRequest, HitlResponse, Lane, LaneStatus, MemoryItem, Member, Message, Room, RoomParticipant, Runtime,
   StreamEvent, Task, TaskCard, TaskEvent, TriggerPreview, Work, WorkListItem,
 } from "@/lib/api/types";
 
@@ -194,6 +194,8 @@ export default function RoomPage() {
   const [cards, setCards] = useState<CardCache>({});
   const [board, setBoard] = useState<CardBoard | null>(null);
   const [workTab, setWorkTab] = useState<string>("overview");
+  /** 미션 상태 원장(v0.19.18, PRD FR-4.6) — 우열에 실린 미션의 항목 전부(`status=all`, 읽기 전용 「원장」 탭). */
+  const [ledger, setLedger] = useState<MemoryItem[] | null>(null);
   const requestedEvents = useRef(new Set<string>());
   const bottomRef = useRef<HTMLDivElement>(null);
   /** 「작업 중」 말풍선의 마지막 높이(에이전트 id → px) — 게시된 메시지가 그 자리에 서는 첫 프레임에 min-height 로 쓴다(튐 최소, COMPONENTS §9.10). */
@@ -368,6 +370,16 @@ export default function RoomPage() {
   useEffect(() => {
     void loadBoard(panelWorkId);
   }, [loadBoard, panelWorkId]);
+  // 원장 — 실린 미션의 항목 전부(대체·철회 포함). 읽기 실패·서버 끔이면 null(탭 없음). 미션이 바뀌면 다시 읽고, 늦게 온 다른 미션의 목록은 WorkPanel 이 work_id 로 거른다.
+  // 원장 쓰기에는 방송 이벤트가 없다 — 그 미션의 `work.updated`(턴이 끝나 비용·진행이 바뀔 때)와 재동기화 때 다시 읽는다.
+  const loadLedger = useCallback(async (workId: string | null) => {
+    if (!workId) return setLedger(null);
+    const items = await api.get("/works/{workId}/memory", { path: { workId }, query: { status: "all" } }).catch(() => null);
+    setLedger(Array.isArray(items) ? items : null); // 계약은 배열 — 다른 모양(옛 서버·가짜 응답)이면 탭 없음으로 본다
+  }, []);
+  useEffect(() => {
+    void loadLedger(panelWorkId);
+  }, [loadLedger, panelWorkId]);
   /** 말풍선이 캐시에 없는 카드(판)를 부탁하면 `getCard` 로 한 번(판 · 종류마다) — 지난 판(`versions`)까지 받아 캐시를 통째로 바꾼다. */
   const requestedCards = useRef(new Set<string>());
   useEffect(() => {
@@ -528,7 +540,10 @@ export default function RoomPage() {
       case "work.updated": {
         const w = e.payload;
         setWorks((cur) => worksOnUpserted(cur, w));
-        if (w.id === panelRef.current) void loadWork(w.id);
+        if (w.id === panelRef.current) {
+          void loadWork(w.id);
+          void loadLedger(w.id);
+        }
         refreshRoom();
         break;
       }
@@ -602,8 +617,8 @@ export default function RoomPage() {
       default:
         break;
     }
-  }, [roomId, router, loadWork, loadParticipants, refreshRoom, fetchCard, loadBoard]);
-  const conn = useWorkspaceStream(workspace?.id, onEvent, { onResync: () => { void load(); void loadSide(); void loadMessages(); } });
+  }, [roomId, router, loadWork, loadParticipants, refreshRoom, fetchCard, loadBoard, loadLedger]);
+  const conn = useWorkspaceStream(workspace?.id, onEvent, { onResync: () => { void load(); void loadSide(); void loadMessages(); void loadLedger(panelRef.current); } });
 
   // 새 메시지·델타마다 맨 아래로(앵커로 들어왔으면 앵커 자리를 지킨다). 작성창 높이만큼 끝 표식의 scroll-margin 을 둔다(W-18).
   useEffect(() => {
@@ -1379,6 +1394,7 @@ export default function RoomPage() {
                 void loadRoom().catch(() => undefined);
               }}
               board={board}
+              ledger={ledger}
               tab={workTab}
               onTab={setWorkTab}
               onOpenCard={openCard}

@@ -91,6 +91,20 @@ func (f *p2Fixture) cmdOp(t *testing.T, tok string, taskID uuid.UUID, cmd gen.Co
 	case gen.ColabCommandCardRevise:
 		st, out, _ := c.do("POST", f.p+"/cards/"+uuid.NewString()+"/revise", map[string]any{"reason": "모자람"}, key()...)
 		return st, out
+	// v0.9.12 ledger commands — past the gate it is the operation's own
+	// answer (403 outside_task_scope / 404 memory), never command_not_allowed.
+	case gen.ColabCommandMemoryGet:
+		st, out, _ := c.do("GET", f.p+"/works/"+f.missionID+"/memory", nil)
+		return st, out
+	case gen.ColabCommandMemoryNote:
+		st, out, _ := c.do("POST", f.p+"/works/"+f.missionID+"/memory", map[string]any{"kind": "fact", "content": "사실"}, key()...)
+		return st, out
+	case gen.ColabCommandMemorySupersede:
+		st, out, _ := c.do("POST", f.p+"/memory/"+uuid.NewString()+"/supersede", map[string]any{"content": "새 값"}, key()...)
+		return st, out
+	case gen.ColabCommandMemoryRetire:
+		st, out, _ := c.do("POST", f.p+"/memory/"+uuid.NewString()+"/retire", map[string]any{"reason": "철회"})
+		return st, out
 	case gen.ColabCommandWorkPropose:
 		st, out, _ := c.do("POST", f.p+"/rooms/"+f.sessionID+"/work-proposals", map[string]any{"goal": "새 미션", "rationale": "근거"}, key()...)
 		return st, out

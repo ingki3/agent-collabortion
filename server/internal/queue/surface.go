@@ -62,6 +62,14 @@ type Surface struct {
 	// says how to fetch them.
 	MediaRule   string
 	AttachFetch string
+	// harness v0.9.18 (PRD FR-4.6): brief [2]'s fixed ledger line, and the
+	// <mission_ledger> overflow pointer for one kind.
+	LedgerRule string
+	ledgerMore string // fmt: kind
+	// MissionRead closes ② (v0.9.18): how to read one indexed message in
+	// full — English only on both surfaces (colab-cli v0.9.6 rule; the
+	// older threadRead phrase mixes in Korean, #409 리뷰 NN6).
+	MissionRead string
 }
 
 // Tool surface values (harness §9 runtime.capabilities[].tool_surface).
@@ -141,6 +149,16 @@ const (
 	AttachFetchMCP = "Download one into your folder with the `colab_artifact_get` tool (`artifact`: the id, `out`: a path in your folder)."
 )
 
+// LedgerRule / LedgerRuleMCP are harness v0.9.18's brief [2] line (PRD
+// FR-4.6 5) — the contract's words per surface, the command in backticks for
+// the wrapper rewrite (toolwrap.cliRe) and so that the daemon's role filter
+// (brief.RestrictCommands) drops the line for a task without memory_note —
+// a question task (colab-cli §2.5 질문 표 has memory_get only).
+const (
+	LedgerRule    = "- Mission facts, assignments and lessons live in <mission_ledger>. If something changed, record it: `colab memory note` (or supersede an existing item) — saying it only in a message means the next person won't find it.\n"
+	LedgerRuleMCP = "- Mission facts, assignments and lessons live in <mission_ledger>. If something changed, record it with the `colab_memory_note` tool (or `colab_memory_supersede`) — saying it only in a message means the next person won't find it.\n"
+)
+
 // QuietRule is harness v0.9.15's brief [2] line (PRD FR-2A.2.3): the
 // contract gives one sentence for both surfaces — it names no command — so
 // both carry the same bytes. Fixed, whatever the mission's state (E12-11:
@@ -174,6 +192,9 @@ var shellSurface = Surface{
 	FocusRule:       FocusRule,
 	MediaRule:       MediaRule,
 	AttachFetch:     AttachFetch,
+	LedgerRule:      LedgerRule,
+	ledgerMore:      "`colab memory get --kind %s`",
+	MissionRead:     "Read one in full with `colab room messages --thread <id>`.",
 }
 
 var mcpSurface = Surface{
@@ -198,6 +219,9 @@ var mcpSurface = Surface{
 	FocusRule:       FocusRuleMCP,
 	MediaRule:       MediaRuleMCP,
 	AttachFetch:     AttachFetchMCP,
+	LedgerRule:      LedgerRuleMCP,
+	ledgerMore:      "the `colab_memory_get` tool (`kind: \"%s\"`)",
+	MissionRead:     "Read one in full with the `colab_room_messages` tool (`thread`: the message id).",
 }
 
 // SurfaceFor is the text set for a profile's runtime_kind: hermes reads the
@@ -212,6 +236,11 @@ func SurfaceFor(runtimeKind string) Surface {
 
 // ThreadRead is how to read the thread of message id in full.
 func (s Surface) ThreadRead(id string) string { return fmt.Sprintf(s.threadRead, id) }
+
+// LedgerMore is <mission_ledger>'s overflow pointer for kind (harness
+// v0.9.18 `… and N more — colab memory get --kind <k>`; the mcp surface
+// names the tool, v0.9.6).
+func (s Surface) LedgerMore(kind string) string { return fmt.Sprintf(s.ledgerMore, kind) }
 
 // GroupRead is how to read part message group id whole.
 func (s Surface) GroupRead(id string) string { return fmt.Sprintf(s.groupRead, id) }
@@ -231,6 +260,7 @@ func (s Surface) Section2() string {
 		s.FocusRule +
 		"- Mentioning another agent asks it a question — it answers and does no new work; work is handed over only with a card. Do not mention agents just to acknowledge.\n" +
 		cards.ReportRule(s.Kind == SurfaceMCP) +
+		s.LedgerRule +
 		QuietRule +
 		"- Your COLAB_TASK_TOKEN is valid for this attempt only; if a call returns token_revoked, stop immediately.\n\n"
 }

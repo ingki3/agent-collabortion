@@ -187,7 +187,7 @@ func TestEmptyMeansEverything(t *testing.T) {
 		t.Fatalf("EnvEntry %q", e)
 	}
 	d := Denied(allowed)
-	if len(d) != len(all)-2 || d[0] != "room_messages" || d[len(d)-1] != "card_list" {
+	if len(d) != len(all)-2 || d[0] != "room_messages" || d[len(d)-1] != "memory_get" {
 		t.Fatalf("Denied %v", d)
 	}
 	if len(Denied(All())) != 0 {

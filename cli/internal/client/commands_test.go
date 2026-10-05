@@ -116,6 +116,8 @@ func TestCLIName(t *testing.T) {
 		CmdRoomList: "room list", CmdRoomRead: "room read", CmdWorkPropose: "work propose",
 		CmdCardReport: "card report", CmdCardAccept: "card accept", CmdCardRevise: "card revise",
 		CmdCardGet: "card get", CmdCardList: "card list",
+		CmdMemoryNote: "memory note", CmdMemorySupersede: "memory supersede",
+		CmdMemoryRetire: "memory retire", CmdMemoryGet: "memory get",
 	}
 	for _, c := range AllCommands {
 		if c.CLIName() != want[c] {
@@ -209,4 +211,27 @@ func questionCommandsOfServer(t *testing.T) []string {
 		out = append(out, q[1])
 	}
 	return out
+}
+
+// The question table is colab-cli §2.5's list, in order (v0.9.12 adds
+// memory_get) — read from the contract, so the CLI cannot drift from it even
+// where the server source is out of reach.
+func TestQuestionTableIsTheContracts(t *testing.T) {
+	raw, err := os.ReadFile("../../../contracts/colab-cli.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile("질문 표: ([^\\n]*?)\\. 서버가").FindStringSubmatch(string(raw))
+	if m == nil {
+		t.Fatal("colab-cli.md §2.5: the question table is not where this test expects it")
+	}
+	var want []string
+	// 「(값 `working`·`blocked` 만)」 is a remark on status_set, not a command.
+	list := regexp.MustCompile(`\([^)]*\)`).ReplaceAllString(m[1], "")
+	for _, q := range regexp.MustCompile("`([a-z_]+)`").FindAllStringSubmatch(list, -1) {
+		want = append(want, q[1])
+	}
+	if !reflect.DeepEqual(want, questionCommandStrings()) {
+		t.Fatalf("question table: contract %v, CLI %v", want, questionCommandStrings())
+	}
 }

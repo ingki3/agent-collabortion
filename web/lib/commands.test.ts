@@ -1,7 +1,7 @@
 /**
  * 역할별 허용 명령(v1.1 K-19) — 웹 표(`lib/commands.ts`)와 목 표(`lib/mock/store.ts allowedCommands`)를 **둘 다** `contracts/colab-cli.md` §2.5
  * 원문 표를 파싱한 결과와 대조한다. 둘이 같은 표를 공유하지 않는 이유: 한쪽이 틀리면 다른 쪽이 잡아야 한다(목이 구현과 같은 오답을 공유하면
- * 못 잡는다 — T-C5 교훈). 그리고 `ColabCommand` ↔ 사람 말 표(`COMMAND_LABEL`)가 계약 enum 21개(v0.8 방 명령 셋 · v0.9.10 카드 명령 여섯 포함) **전부**를 덮는지, 요약 문장이 6역할에서 어떻게
+ * 못 잡는다 — T-C5 교훈). 그리고 `ColabCommand` ↔ 사람 말 표(`COMMAND_LABEL`)가 계약 enum 25개(v0.8 방 명령 셋 · v0.9.10 카드 명령 여섯 · v0.9.12 원장 명령 넷 포함) **전부**를 덮는지, 요약 문장이 6역할에서 어떻게
  * 나오는지 잰다.
  */
 import { readFileSync } from "node:fs";
@@ -47,8 +47,8 @@ describe("§2.5 표 — 웹 표와 목 표가 각각 계약 원문과 같다", (
   const spec = tableFromCli();
   const ENUM = enumFromOpenapi();
 
-  it("계약 enum 은 21개이고 ALL_COMMANDS 가 같은 순서다", () => {
-    expect(ENUM).toHaveLength(21);
+  it("계약 enum 은 25개이고 ALL_COMMANDS 가 같은 순서다", () => {
+    expect(ENUM).toHaveLength(25);
     expect([...ALL_COMMANDS]).toEqual(ENUM);
     // §2.5 표가 enum 전부를 다룬다(빠진 명령 없음).
     expect([...spec.lead].sort()).toEqual([...ENUM].sort());
@@ -61,12 +61,12 @@ describe("§2.5 표 — 웹 표와 목 표가 각각 계약 원문과 같다", (
     expect([...ROLE_COMMAND_TABLE[role]].sort()).toEqual([...want].sort());
   });
 
-  it("lead·custom 은 전부, 실무자 셋은 14개(카드 위임·판정·검토 승인/반려·완료 승인 요청·미션 제안 없음), reviewer 는 15개(카드 위임·판정·아티팩트 제출·완료 승인 요청·미션 제안 없음) — 다른 방 목록·읽기·결과 카드·카드 읽기는 모두", () => {
-    expect(commandsForRole("lead")).toHaveLength(21);
-    expect(commandsForRole("custom")).toHaveLength(21);
+  it("lead·custom 은 전부, 실무자 셋은 18개(카드 위임·판정·검토 승인/반려·완료 승인 요청·미션 제안 없음), reviewer 는 19개(카드 위임·판정·아티팩트 제출·완료 승인 요청·미션 제안 없음) — 다른 방 목록·읽기·결과 카드·카드 읽기·원장 넷은 모두", () => {
+    expect(commandsForRole("lead")).toHaveLength(25);
+    expect(commandsForRole("custom")).toHaveLength(25);
     for (const r of ["researcher", "writer", "engineer"] as const) {
-      expect(commandsForRole(r)).toHaveLength(14);
-      for (const c of ["card_report", "card_get", "card_list"] as const) expect(commandsForRole(r)).toContain(c);
+      expect(commandsForRole(r)).toHaveLength(18);
+      for (const c of ["card_report", "card_get", "card_list", "memory_note", "memory_supersede", "memory_retire", "memory_get"] as const) expect(commandsForRole(r)).toContain(c);
       for (const c of ["card_accept", "card_revise"] as const) expect(commandsForRole(r)).not.toContain(c);
       expect(commandsForRole(r)).not.toContain("work_propose");
       expect(commandsForRole(r)).toContain("room_list");
@@ -77,7 +77,8 @@ describe("§2.5 표 — 웹 표와 목 표가 각각 계약 원문과 같다", (
       expect(commandsForRole(r)).not.toContain("hitl_approve_request");
       expect(commandsForRole(r)).toContain("artifact_submit");
     }
-    expect(commandsForRole("reviewer")).toHaveLength(15);
+    expect(commandsForRole("reviewer")).toHaveLength(19);
+    for (const c of ["memory_note", "memory_supersede", "memory_retire", "memory_get"] as const) expect(commandsForRole("reviewer")).toContain(c);
     expect(commandsForRole("reviewer")).toContain("card_report");
     expect(commandsForRole("reviewer")).not.toContain("card_accept");
     expect(commandsForRole("reviewer")).not.toContain("work_propose");
@@ -88,7 +89,7 @@ describe("§2.5 표 — 웹 표와 목 표가 각각 계약 원문과 같다", (
   });
 });
 
-describe("ColabCommand ↔ 사람 말 — 21개 전부", () => {
+describe("ColabCommand ↔ 사람 말 — 25개 전부", () => {
   it("COMMAND_LABEL 의 키가 계약 enum 과 정확히 같고, 값은 한국어 사람 말(명령 이름·밑줄 없음)", () => {
     expect(Object.keys(COMMAND_LABEL).sort()).toEqual([...enumFromOpenapi()].sort());
     for (const [k, v] of Object.entries(COMMAND_LABEL)) {
@@ -96,16 +97,17 @@ describe("ColabCommand ↔ 사람 말 — 21개 전부", () => {
       expect(v, k).not.toMatch(/_|\blane\b|\btask\b|hitl/i);
     }
     // 같은 말이 둘에 붙지 않는다.
-    expect(new Set(Object.values(COMMAND_LABEL)).size).toBe(21);
+    expect(new Set(Object.values(COMMAND_LABEL)).size).toBe(25);
   });
 
-  it("표 그대로 — 카드로 위임 · 아티팩트 제출 · 검토 승인/반려 · 완료 승인 요청 · 사람에게 질문/정보 요청 · 카드 다섯", () => {
+  it("표 그대로 — 카드로 위임 · 아티팩트 제출 · 검토 승인/반려 · 완료 승인 요청 · 사람에게 질문/정보 요청 · 카드 다섯 · 원장 넷", () => {
     expect(COMMAND_LABEL).toEqual({
       room_get: "방 읽기", room_messages: "메시지 읽기", artifact_get: "아티팩트 읽기", message_post: "메시지 게시", status_set: "상태 알리기",
       decision_record: "결정 기록", card_delegate: "카드로 위임", artifact_submit: "아티팩트 제출", review_approve: "검토 승인", review_reject: "검토 반려",
       hitl_ask: "사람에게 질문", hitl_approve_request: "완료 승인 요청", hitl_request_info: "사람에게 정보 요청",
       room_list: "다른 방 목록", room_read: "다른 방 읽기", work_propose: "미션 제안",
       card_report: "결과 카드 내기", card_accept: "결과 수락", card_revise: "수정 요청", card_get: "카드 보기", card_list: "분담표 보기",
+      memory_note: "원장에 기록", memory_supersede: "원장 항목 대체", memory_retire: "원장 항목 철회", memory_get: "원장 보기",
     });
   });
 });
@@ -123,9 +125,9 @@ describe("summarizeCommands — 역할 6종의 요약 문장", () => {
     expect(custom.cannot).toBeNull();
   });
 
-  it.each(["researcher", "writer", "engineer"] as const)("%s — 할 수 있는 일 14개를 ' · ' 로, 못 하는 것 한 줄은 Lead 의 일", (role) => {
+  it.each(["researcher", "writer", "engineer"] as const)("%s — 할 수 있는 일 18개를 ' · ' 로, 못 하는 것 한 줄은 Lead 의 일", (role) => {
     const s = summarizeCommands(role, commandsForRole(role));
-    expect(s.can).toBe("방 읽기 · 메시지 읽기 · 아티팩트 읽기 · 메시지 게시 · 상태 알리기 · 결정 기록 · 아티팩트 제출 · 사람에게 질문 · 사람에게 정보 요청 · 다른 방 목록 · 다른 방 읽기 · 결과 카드 내기 · 카드 보기 · 분담표 보기");
+    expect(s.can).toBe("방 읽기 · 메시지 읽기 · 아티팩트 읽기 · 메시지 게시 · 상태 알리기 · 결정 기록 · 아티팩트 제출 · 사람에게 질문 · 사람에게 정보 요청 · 다른 방 목록 · 다른 방 읽기 · 결과 카드 내기 · 카드 보기 · 분담표 보기 · 원장에 기록 · 원장 항목 대체 · 원장 항목 철회 · 원장 보기");
     expect(s.cannot).toBe("카드로 위임 · 검토 승인 · 검토 반려 · 완료 승인 요청 · 미션 제안 · 결과 수락 · 수정 요청은 못 합니다 — 위임·결과 판정·검토 승인·완료 승인 요청·미션 제안은 Lead 의 일");
     expect(s.allNote).toBeNull();
     expect(s.denied).toEqual(["card_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose", "card_accept", "card_revise"]);
@@ -143,6 +145,6 @@ describe("summarizeCommands — 역할 6종의 요약 문장", () => {
     expect(summarizeCommands("researcher", null).denied).toEqual([]);
     const s = summarizeCommands("researcher", ["message_post"]);
     expect(s.can).toBe("메시지 게시");
-    expect(s.denied).toHaveLength(20);
+    expect(s.denied).toHaveLength(24);
   });
 });

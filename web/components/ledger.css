@@ -1,0 +1,18 @@
+/* 원장(PRD FR-4.6) — 우열 268px 안, 분담표(card-board.css)와 같은 두 줄 행: 1줄 내용, 2줄 메타(--fs-meta). 대체·철회는 흐리게. 토큰만. */
+.ledger { display: flex; flex-direction: column; gap: 8px; }
+.ledger__h { display: flex; align-items: baseline; gap: 4px; }
+.ledger__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ledger__item { display: flex; flex-direction: column; gap: 2px; padding: 6px 4px; border-bottom: 1px solid var(--line); color: var(--ink); font-size: var(--fs-sub); }
+.ledger__item:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.ledger__item--dim { opacity: 0.55; }
+.ledger__item--hl { background: var(--surface); outline: 2px solid var(--ink-3); outline-offset: -2px; }
+.ledger__content { margin: 0; overflow-wrap: anywhere; }
+.ledger__meta { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: var(--fs-meta); color: var(--ink-2); }
+.ledger__tag { flex: none; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; }
+.ledger__support { flex: none; font-variant-numeric: tabular-nums; }
+.ledger__once { flex: none; color: var(--ink-3); font-style: italic; }
+.ledger__who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--s-run-text); }
+.ledger__sep { flex: none; color: var(--ink-3); }
+.ledger__at, .ledger__state { flex: none; }
+.ledger__jump { font-size: inherit; }
+.ledger__reason { margin-left: 4px; }

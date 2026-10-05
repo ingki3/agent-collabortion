@@ -141,8 +141,8 @@ export const FIX_CONDITION = {
 // ── v1.1 첫 라운드(T-W16) — S14 「관찰」 표(K-18) · S10 역할의 허용 명령(K-19) · 빈 턴 카드(FR-7.2) ──
 
 /**
- * `ColabCommand`(계약 enum 21개, `colab-cli.md` §2) → 사람 말. S10 역할 구역이 "이 에이전트가 할 수 있는 일: …" 로 그린다.
- * 명령 이름은 내부어라 화면에 나오지 않는다 — 이 표만 나온다. 21개 전부를 `lib/wording.test.ts` 가 계약 enum 과 대조한다.
+ * `ColabCommand`(계약 enum 25개, `colab-cli.md` §2) → 사람 말. S10 역할 구역이 "이 에이전트가 할 수 있는 일: …" 로 그린다.
+ * 명령 이름은 내부어라 화면에 나오지 않는다 — 이 표만 나온다. 25개 전부를 `lib/wording.test.ts` 가 계약 enum 과 대조한다.
  */
 export const COMMAND_LABEL = {
   room_get: "방 읽기",
@@ -167,6 +167,11 @@ export const COMMAND_LABEL = {
   card_revise: "수정 요청",
   card_get: "카드 보기",
   card_list: "분담표 보기",
+  // v0.9.12(PRD FR-4.6) — 미션 상태 원장.
+  memory_note: "원장에 기록",
+  memory_supersede: "원장 항목 대체",
+  memory_retire: "원장 항목 철회",
+  memory_get: "원장 보기",
 } as const;
 
 /** S10 역할 구역 — 허용 명령 목록의 머리말·"전부"·못 하는 것 한 줄(FR-1.9.1 표의 "막는 것과 이유" 열을 사람 말로). */
@@ -658,6 +663,8 @@ export const WORK_PANEL = {
   tab_overview: "개요",
   /** v0.19.15 — 카드가 하나라도 있는 미션의 둘째 탭(SCREEN §4.6 (가) 「분담표」). */
   tab_board: "분담표",
+  /** v0.19.18(PRD FR-4.6 6) — 원장 항목이 하나라도 있는 미션의 탭(읽기 전용 목록). */
+  tab_ledger: "원장",
   estimated: "추정",
   pause: "일시정지",
   resume: "재개",
@@ -856,6 +863,30 @@ export const PARTS = {
 } as const;
 
 /**
+ * 미션 상태 원장(PRD FR-4.6 · openapi v0.3.12 태그 `memory`) — 우열 미션 칸 「원장」 탭의 말. **읽기 전용 목록**이다(사람 입력 화면은 FR-4.6 6 범위 밖).
+ * 종류 6 · 확실도 4 · 결과 3 이 계약 enum 과 1:1 이다(`components/LedgerList.test.tsx`). 묶음 순서는 계획 → 진행 → 사실 → 담당 → 열린 질문 → 교훈.
+ */
+export const MEMORY_LEDGER = {
+  order: ["plan", "progress", "fact", "assignment", "open_question", "lesson"] as const,
+  kind: { plan: "계획", progress: "진행", fact: "사실", assignment: "담당", open_question: "열린 질문", lesson: "교훈" },
+  certainty: { given: "받은 값", to_verify: "확인 필요", derived: "추론", guess: "추측" },
+  outcome: { dead_end: "안 됨", corrected: "고침", useful: "도움 됨" },
+  /** 교훈 — 같은 내용이 쌓인 횟수. */
+  support: (n: number) => `${n}번 겪음`,
+  /** support_count < 2 — 에이전트 턴 프롬프트에 아직 오르지 않는다(FR-4.6 3). */
+  once: "아직 한 번",
+  once_title: "같은 교훈이 두 번 쌓여야 에이전트에게 보입니다",
+  superseded: "대체됨",
+  new_version: "새 판 보기",
+  new_version_title: "이 항목을 대체한 새 항목으로 갑니다",
+  retired: "철회됨",
+  /** 철회 사유(openapi v0.3.13 `retire_reason`, #409 리뷰 NN4) — 「철회됨」 바로 뒤. */
+  retire_reason: (r: string) => `— ${r}`,
+  aria: "미션 상태 원장",
+  group_aria: (kind: string, n: number) => `${kind} ${n}건`,
+} as const;
+
+/**
  * 작업 카드(PRD FR-3.8 · SCREEN §4.6 「작업 카드」·「분담표」 · COMPONENTS §9.13 · openapi v0.3.10) — 위임 카드·결과 카드 말풍선, 사람의 되돌리기,
  * 우열 「분담표」 탭의 말. 확인 방법 5종·카드 상태 4종·판정 3종·기준 판정 3종이 계약 enum 과 1:1 이다(`lib/wording.test.ts`).
  * 「산출물」은 §8.4 용어표가 막는다(Lead 판정 2026-09-30) — 확인 방법 `artifact` 는 「아티팩트」, 칸 `output_format` 은 「결과물」.
@@ -946,6 +977,10 @@ export const PROCESS_ACTION: Record<string, Slotted> = {
   "status/record_decision": ["결정 기록 ", "건"],
   "status/hitl": ["사람 확인 요청 ", "건"],
   "status/review": ["검토 ", "건"],
+  // 원장 쓰기(PRD FR-4.6) — 피드 행은 status/update + payload.command 로 셋을 가른다(message-layers processKey, #409 리뷰 NN5).
+  "status/memory_note": ["원장 기록 ", "건"],
+  "status/memory_supersede": ["원장 항목 대체 ", "건"],
+  "status/memory_retire": ["원장 항목 철회 ", "건"],
 };
 
 /** 좁은 화면(≤1100px) 열 탭 넷(§4.8). */

@@ -49,6 +49,8 @@ var all = []string{
 	"room_list", "room_read", "work_propose",
 	// v0.3.10 (PRD FR-3.8): lane_delegate → card_delegate, + the card commands.
 	"card_report", "card_accept", "card_revise", "card_get", "card_list",
+	// v0.3.12 (PRD FR-4.6): the mission state ledger.
+	"memory_note", "memory_supersede", "memory_retire", "memory_get",
 }
 
 // cliNames is the command as the agent types it (colab-cli.md §2): the two
@@ -76,6 +78,10 @@ var labels = map[string]string{
 	"card_revise":          "수정 요청",
 	"card_get":             "카드 보기",
 	"card_list":            "분담표 보기",
+	"memory_note":          "원장에 기록",
+	"memory_supersede":     "원장 항목 대체",
+	"memory_retire":        "원장 항목 철회",
+	"memory_get":           "원장 보기",
 	"artifact_submit":      "아티팩트 제출",
 	"review_approve":       "검토 승인",
 	"review_reject":        "검토 반려",

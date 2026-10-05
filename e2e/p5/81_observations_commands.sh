@@ -69,9 +69,9 @@ finish_turn() { # TASK [STOP_REASON]
 empty_cards() { psqlq "select count(*) from task_event where task_id='$1' and attempt=1 and class='status' and verb='turn_end' and object_ref=to_jsonb('empty_turn'::text) and outcome='info' and payload->'args'->>'note'='아무것도 하지 않고 턴을 끝냈습니다'"; }
 refused_rows() { psqlq "select string_agg(verb||':'||(payload->>'command'), ',' order by seq) from task_event where task_id='$1' and class='status' and outcome='rejected' and payload->>'rejected_reason'='command_not_allowed'"; }
 allowed_of() { api_ok GET "/agents/$1" | jq -r '.allowed_commands|join(",")'; }
-LEAD_ALL="room_get,room_messages,artifact_get,message_post,status_set,decision_record,card_delegate,artifact_submit,review_approve,review_reject,hitl_ask,hitl_approve_request,hitl_request_info,room_list,room_read,work_propose,card_report,card_accept,card_revise,card_get,card_list"
-WRITER_ALL="room_get,room_messages,artifact_get,message_post,status_set,decision_record,artifact_submit,hitl_ask,hitl_request_info,room_list,room_read,card_report,card_get,card_list"
-REVIEWER_ALL="room_get,room_messages,artifact_get,message_post,status_set,decision_record,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read,card_report,card_get,card_list"
+LEAD_ALL="room_get,room_messages,artifact_get,message_post,status_set,decision_record,card_delegate,artifact_submit,review_approve,review_reject,hitl_ask,hitl_approve_request,hitl_request_info,room_list,room_read,work_propose,card_report,card_accept,card_revise,card_get,card_list,memory_note,memory_supersede,memory_retire,memory_get"
+WRITER_ALL="room_get,room_messages,artifact_get,message_post,status_set,decision_record,artifact_submit,hitl_ask,hitl_request_info,room_list,room_read,card_report,card_get,card_list,memory_note,memory_supersede,memory_retire,memory_get"
+REVIEWER_ALL="room_get,room_messages,artifact_get,message_post,status_set,decision_record,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read,card_report,card_get,card_list,memory_note,memory_supersede,memory_retire,memory_get"
 # T-CARD-S(openapi v0.3.10): 위임 본문은 카드 — CARD_TO NAME_ID GOAL
 card_body() { jq -nc --arg a "$1" --arg g "$2" '{card:{agent_id:$a,goal:$g,criteria:[{text:($g+" — 결과를 보고한다"),method:"review"}],boundaries:"맡은 것 밖은 건드리지 않는다"}}'; }
 # report_with TOKEN — 그 task 의 카드에 결과 카드(기준 1 met, 근거 커밋)
@@ -152,7 +152,7 @@ chk C.7 "3/0.3333" "$(obs_row empty_turn_rate | jq -r '(.n|tostring)+"/"+((.valu
 
 # ───────────────────────────── D ─────────────────────────────────────────────
 step "D. 역할별 명령 — 세 표면 + 403 command_not_allowed"
-chk D.1 "$LEAD_ALL" "$(allowed_of "$LEAD")" "Agent.allowed_commands lead = 21 전부(§2.5 v0.9.10)"
+chk D.1 "$LEAD_ALL" "$(allowed_of "$LEAD")" "Agent.allowed_commands lead = 25 전부(§2.5 v0.9.12)"
 chk D.2 "$WRITER_ALL" "$(allowed_of "$W")" "writer = delegate·review·approve-request·work propose 제외 11"
 chk D.3 "$REVIEWER_ALL" "$(allowed_of "$R")" "reviewer = delegate·submit·approve-request·work propose 제외 12"
 chk D.4 "$LEAD_ALL" "$(allowed_of "$C")" "custom = 전부"

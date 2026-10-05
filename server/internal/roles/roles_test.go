@@ -65,6 +65,7 @@ func contractTable(t *testing.T) map[gen.AgentRole]map[gen.ColabCommand]bool {
 	}
 	code := regexp.MustCompile("`([a-z_]+)`")
 	oldName := regexp.MustCompile("옛 `[a-z_]+`")
+	paren := regexp.MustCompile(`\([^)]*\)`)
 	out := map[gen.AgentRole]map[gen.ColabCommand]bool{}
 	for _, l := range lines[2:] { // skip header and the |---| rule
 		c := cells(l)
@@ -75,6 +76,9 @@ func contractTable(t *testing.T) map[gen.AgentRole]map[gen.ColabCommand]bool {
 		// v0.9.10: 「(옛 `lane_delegate`)」 names the command a row replaced,
 		// not a command of the row.
 		first := oldName.ReplaceAllString(c[0], "")
+		// v0.9.12: 「(v0.9.12, `kind: plan`·`progress` 는 …)」 is a note on
+		// the row — the backticked words in a parenthesis are not commands.
+		first = paren.ReplaceAllString(first, "")
 		for _, m := range code.FindAllStringSubmatch(first, -1) {
 			cmds = append(cmds, gen.ColabCommand(m[1]))
 		}
@@ -178,7 +182,8 @@ func TestAllCommandsIsTheClosedEnum(t *testing.T) {
 	if len(AllowedCommands(gen.Lead)) != len(want) || len(AllowedCommands(gen.Custom)) != len(want) {
 		t.Errorf("lead and custom get everything: lead %d custom %d of %d", len(AllowedCommands(gen.Lead)), len(AllowedCommands(gen.Custom)), len(want))
 	}
-	if s := AllowedCommandStrings(gen.Reviewer); len(s) != 15 || s[0] != "room_get" {
+	// v0.9.12: + memory_note/supersede/retire/get (every role).
+	if s := AllowedCommandStrings(gen.Reviewer); len(s) != 19 || s[0] != "room_get" {
 		t.Errorf("AllowedCommandStrings(reviewer) = %v", s)
 	}
 }

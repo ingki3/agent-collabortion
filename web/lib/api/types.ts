@@ -139,6 +139,12 @@ export type CardStatus = S["CardStatus"];
 export type CardVerdict = S["CardVerdict"];
 export type CardCriterionMethod = S["CardCriterionMethod"];
 export type CardAction = TaskCard["actions"][number];
+// v0.3.12(PRD FR-4.6) — 미션 상태 원장.
+export type MemoryItem = S["MemoryItem"];
+export type MemoryKind = S["MemoryKind"];
+export type MemoryCertainty = S["MemoryCertainty"];
+export type MemoryOutcome = S["MemoryOutcome"];
+export type MemoryStatus = S["MemoryStatus"];
 export type CardRole = NonNullable<Message["card_role"]>;
 /**
  * `listRooms`·`listWorks` 는 계약에서 `allOf: [Page, {items: X[]}]` 라 생성 타입의 `items` 가 `unknown[] & X[]` 로 접힌다(`Page.items` 가 `{}`).

@@ -65,6 +65,7 @@ type Server struct {
 	p2State // P2 knobs and captures — see p2.go
 	cardState
 	roomState
+	memoryState
 	mu       sync.Mutex
 	Revoked  bool // every authed call → 401 token_revoked
 	Fail     int  // if >0, every call returns this status with a Problem
@@ -152,6 +153,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		// Slow or blocking handlers must not hold the fake's lock.
 		s.mu.Unlock()
 		defer s.mu.Lock()
+	}
+	if s.handleMemory(w, r, path) {
+		return
 	}
 	if s.handleP2(w, r, path) {
 		return
