@@ -86,13 +86,20 @@ describe("원장 목 — noteMemory 규칙", () => {
     expect((await note({ kind: "fact", content: "B", certainty: "derived", outcome: "useful" })).body).toMatchObject({ certainty: "derived", outcome: null });
     expect((await note({ kind: "lesson", content: "C", certainty: "given", outcome: "corrected" })).body).toMatchObject({ certainty: null, outcome: "corrected", support_count: 1, promoted: false });
   });
-  it("교훈 중복 — 같은(뗀) 내용이면 새 행 없이 support_count 2 · promoted · 200 으로 그 행", async () => {
+  it("교훈 중복 — 같은(뗀) 내용이면 새 행 없이 200 으로 그 행 · 다른 작성자일 때만 support_count 2 · last_reinforced_at 갱신(v0.3.13)", async () => {
     const a = await note({ kind: "lesson", content: "타일 경계 판정은 끼인다", outcome: "dead_end" });
     expect(a.status).toBe(201);
+    expect(a.body.last_reinforced_at).toBe(a.body.created_at);
+    const same = await note({ kind: "lesson", content: "타일 경계 판정은 끼인다" });
+    expect(same.status).toBe(200);
+    expect(same.body).toMatchObject({ id: a.body.id, support_count: 1, promoted: false, last_reinforced_at: a.body.created_at });
+    await login("seoyeon@colab.dev");
     const b = await note({ kind: "lesson", content: "  타일 경계 판정은 끼인다 ", outcome: "dead_end" });
     expect(b.status).toBe(200);
     expect(b.body.id).toBe(a.body.id);
     expect(b.body).toMatchObject({ support_count: 2, promoted: true });
+    expect(b.body.last_reinforced_at >= a.body.created_at).toBe(true);
+    expect((await note({ kind: "lesson", content: "타일 경계 판정은 끼인다" })).body.support_count).toBe(2);
     const lessons = await list("?kind=lesson&status=all");
     expect(lessons).toHaveLength(1);
     expect(lessons[0].support_count).toBe(2);
@@ -111,6 +118,7 @@ describe("원장 목 — noteMemory 규칙", () => {
 describe("원장 목 — supersede · retire", () => {
   it("대체 — 201 {item, superseded}, kind·support_count 를 물려받는다", async () => {
     const l = (await note({ kind: "lesson", content: "옛 교훈", outcome: "useful" })).body as MemoryItem;
+    await login("seoyeon@colab.dev");
     await note({ kind: "lesson", content: "옛 교훈" });
     const r = await call("POST", `/memory/${l.id}/supersede`, { content: "고친 교훈" });
     expect(r.status).toBe(201);
@@ -135,7 +143,7 @@ describe("원장 목 — supersede · retire", () => {
     const r = await call("POST", `/memory/${g.id}/retire`, { reason: "결정됨" });
     expect(r.body).toMatchObject({ id: g.id, status: "retired", content: "미니 터보?" });
     expect(r.body.invalidated_at).toBeTruthy();
-    expect(r.body).not.toHaveProperty("retire_reason");
+    expect(r.body.retire_reason).toBe("결정됨"); // v0.3.13 — 응답 칸(#409 리뷰 NN4)
     expect((await list()).map((x) => x.id)).not.toContain(g.id);
     expect((await list("?status=all")).map((x) => x.id)).toContain(g.id);
     expect((await list("?status=retired")).map((x) => x.id)).toEqual([g.id]);

@@ -258,7 +258,8 @@ func TestMemorySupersedeAndRetire(t *testing.T) {
 	}
 
 	code, v, stderr = exec(t, env, "memory", "retire", clienttest.MemoryID, "--reason", "틀렸다")
-	if code != 0 || v["status"] != "retired" {
+	// openapi v0.3.13 (#409 리뷰 NN4): the reason reaches the agent in the output.
+	if code != 0 || v["status"] != "retired" || v["retire_reason"] != "틀렸다" {
 		t.Fatalf("retire: exit %d %v %s", code, v, stderr)
 	}
 	if call := s.MemoryCalls[1]; call.Path != "/memory/"+clienttest.MemoryID+"/retire" || call.Body["reason"] != "틀렸다" || call.Key != "" {

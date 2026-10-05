@@ -242,6 +242,20 @@ describe("summarizeProcess — 많은 동작 2개와 수 · 걸린 시간 · 실
     expect(parts(s)).toEqual(["검색 3회", "파일 2개 편집"]);
   });
 
+  // #409 리뷰 NN5: 원장 쓰기(status/update + payload.command)는 명령별로 센다 — 원장이 아닌 update 는 세지 않는다.
+  // 회귀 주입: processKey 의 memory 분기를 지우면 FAIL.
+  it("원장 쓰기 — memory note·supersede·retire 를 따로 센다", () => {
+    const events = [
+      ev("status", "update", { object_ref: "m1", payload: { command: "memory note", args: { kind: "fact" } } }),
+      ev("status", "update", { object_ref: "m2", payload: { command: "memory note", args: { kind: "lesson" } } }),
+      ev("status", "update", { object_ref: "m3", payload: { command: "memory supersede" } }),
+      ev("status", "update", { object_ref: "x", payload: { command: "something else" } }),
+    ];
+    expect(parts(summarizeProcess({ events, structured: true, loading: false }))).toEqual(["원장 기록 2건", "원장 항목 대체 1건"]);
+    const retire = [ev("status", "update", { object_ref: "m4", payload: { command: "memory retire" } })];
+    expect(parts(summarizeProcess({ events: retire, structured: true, loading: false }))).toEqual(["원장 항목 철회 1건"]);
+  });
+
   it("같은 툴 호출(started → ok)은 한 번으로 센다", () => {
     const events = [
       ev("tool", "search", { outcome: "started", payload: { tool_call_id: "c1" } }),

@@ -38,7 +38,7 @@ const LEDGER: MemoryItem[] = [
   mi({ id: "pl", kind: "plan", content: "조사와 스프라이트를 나란히" }),
   mi({ id: "f-new", kind: "fact", content: "타일 크기는 32px 이다", certainty: "given", supersedes: "f-old", created_by: { kind: "user", id: "u1", name: "형주" } }),
   mi({ id: "f-guess", kind: "fact", content: "Mode 7 같다", certainty: "guess" }),
-  mi({ id: "f-ret", kind: "fact", content: "배경 음악은 직접 작곡", certainty: "given", status: "retired", invalidated_at: "2026-10-05T00:00:00Z" }),
+  mi({ id: "f-ret", kind: "fact", content: "배경 음악은 직접 작곡", certainty: "given", status: "retired", invalidated_at: "2026-10-05T00:00:00Z", retire_reason: "범위에서 뺐다" }),
   mi({ id: "oq", kind: "open_question", content: "미니 터보를 넣을까?" }),
   mi({ id: "les2", kind: "lesson", content: "시트를 합치면 빨라진다", outcome: "useful", support_count: 1, promoted: false }),
   mi({ id: "pg", kind: "progress", content: "C-1 수락 · C-3 판정 대기" }),
@@ -103,6 +103,9 @@ describe("LedgerList — 종류별 묶음 · 라벨 · 대체·철회는 흐리�
     expect(item("f-ret")).toHaveClass("ledger__item--dim");
     expect(item("f-new")).not.toHaveClass("ledger__item--dim");
     expect(within(item("f-ret")).getByTestId("ledger-retired")).toHaveTextContent("철회됨");
+    // v0.3.13 retire_reason(#409 리뷰 NN4): 철회 사유가 보인다 — 사유 없는 항목에는 줄이 없다.
+    expect(within(item("f-ret")).getByTestId("ledger-retire-reason")).toHaveTextContent("범위에서 뺐다");
+    expect(screen.queryAllByTestId("ledger-retire-reason")).toHaveLength(1);
     expect(within(item("f-ret")).queryByTestId("ledger-new-version")).toBeNull();
     expect(screen.getAllByTestId("ledger-new-version")).toHaveLength(1);
     expect(within(item("f-old")).getByTestId("ledger-new-version")).toHaveTextContent("새 판 보기");

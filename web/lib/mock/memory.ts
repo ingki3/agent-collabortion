@@ -4,9 +4,10 @@
  * op 넷: `listMemory`(GET /works/{id}/memory?kind=&status=) · `noteMemory`(POST /works/{id}/memory) · `supersedeMemory`(POST /memory/{id}/supersede) ·
  * `retireMemory`(POST /memory/{id}/retire). 저장은 이 모듈이 쥔다(`Store` 옆 WeakMap — `cards.ts` 와 같은 모양).
  * 서버(migration memory_item)가 하는 대로:
- *  · 쓰기는 새 행 추가뿐 — 옛 행은 상태 칸 셋(status · superseded_by · invalidated_at)만 바뀐다. 철회 사유는 따로 두고 응답에 싣지 않는다.
+ *  · 쓰기는 새 행 추가뿐 — 옛 행은 상태 칸 셋(status · superseded_by · invalidated_at)만 바뀐다. 철회 사유는 content 와 따로 retire_reason 에(응답 칸, v0.3.13).
  *  · content 는 앞뒤 공백을 떼고 1..300자, 아니면 422. certainty 는 fact 만, outcome 은 lesson 만 남긴다(다른 kind 면 버린다).
- *  · lesson — 같은 미션의 active lesson 과 (뗀) 내용이 같으면 새 행 없이 그 행의 support_count +1, 200 으로 그 행.
+ *  · lesson — 같은 미션의 active lesson 과 (뗀) 내용이 같으면 새 행 없이 200 으로 그 행 — 아직 기여하지 않은 작성자일 때만
+ *    support_count +1 · last_reinforced_at 갱신(openapi v0.3.13).
  *  · plan — 미션당 active 1개: 새 plan 이 이전 active plan 을 대체한다(superseded_by = 새 항목, 새 항목의 supersedes = 이전).
  *  · supersede — 대상이 active 가 아니면 409 memory_not_active, 본문에 kind·work_id 가 있으면 422 kind_immutable.
  *    새 항목은 kind 와(lesson 이면) outcome·support_count 를 물려받는다.
@@ -34,7 +35,7 @@ export interface MemoryCtx {
 }
 
 type Author = MemoryItem["created_by"];
-type Stored = Omit<MemoryItem, "promoted"> & { seq: number; retire_reason: string | null };
+type Stored = Omit<MemoryItem, "promoted"> & { seq: number; retire_reason: string | null; supporters: string[] };
 
 const KINDS: readonly MemoryKind[] = ["fact", "assignment", "open_question", "lesson", "plan", "progress"];
 const CERTAINTIES: readonly MemoryCertainty[] = ["given", "to_verify", "derived", "guess"];
@@ -49,9 +50,9 @@ const stateOf = (s: Store) => {
   return m;
 };
 
-/** 계약 `MemoryItem` 모양 — 목 내부 칸(seq · retire_reason)을 떼고 promoted 를 계산한다. */
+/** 계약 `MemoryItem` 모양 — 목 내부 칸(seq · supporters)을 떼고 promoted 를 계산한다. retire_reason·last_reinforced_at 은 v0.3.13 부터 응답 칸. */
 export function toMemoryItem(it: Stored): MemoryItem {
-  const { seq: _seq, retire_reason: _r, ...row } = it;
+  const { seq: _seq, supporters: _s, ...row } = it;
   return { ...row, promoted: it.kind === "lesson" ? it.support_count >= 2 : true };
 }
 
@@ -75,7 +76,12 @@ export function noteMemory(s: Store, workId: string, by: Author, input: NoteInpu
   if (input.kind === "lesson") {
     const same = memoryOf(s, workId).find((it) => it.kind === "lesson" && it.status === "active" && it.content === content);
     if (same) {
-      same.support_count += 1;
+      // v0.3.13: 아직 기여하지 않은 작성자일 때만 +1 하고 last_reinforced_at 을 지금으로 — 같은 작성자의 재확인은 세지 않는다.
+      if (!same.supporters.includes(by.id)) {
+        same.supporters.push(by.id);
+        same.support_count += 1;
+        same.last_reinforced_at = at;
+      }
       return { item: same, deduped: true };
     }
   }
@@ -87,6 +93,8 @@ export function noteMemory(s: Store, workId: string, by: Author, input: NoteInpu
     status: "active", supersedes: null, superseded_by: null, invalidated_at: null,
     source_message_ids: input.source_message_ids ?? [], created_by: by, created_at: at,
     seq: ++st.seq, retire_reason: null,
+    supporters: input.kind === "lesson" ? [by.id] : [],
+    last_reinforced_at: input.kind === "lesson" ? at : null,
   };
   if (input.kind === "plan") {
     // plan 은 미션당 active 1개 — 이전 active plan 을 이 항목이 대체한다.
@@ -113,6 +121,8 @@ export function supersedeMemory(s: Store, old: Stored, by: Author, body: { conte
     status: "active", supersedes: old.id, superseded_by: null, invalidated_at: null,
     source_message_ids: body.source_message_ids ?? [], created_by: by, created_at: at,
     seq: ++st.seq, retire_reason: null,
+    supporters: old.kind === "lesson" ? [...old.supporters] : [],
+    last_reinforced_at: old.kind === "lesson" ? at : null,
   };
   old.status = "superseded";
   old.superseded_by = item.id;
@@ -148,7 +158,9 @@ export function seedMemory(s: Store, workId: string, authors: Author[]): Record<
   ids.plan = noteMemory(s, workId, lead, { kind: "plan", content: M.plan }, at()).item.id;
   const st = stateOf(s).items;
   ids.fact_new = supersedeMemory(s, st.get(ids.fact_old)!, lead, { content: M.fact_new, certainty: "given" }, at()).id;
-  noteMemory(s, workId, researcher, { kind: "lesson", content: M.lesson_promoted, outcome: "dead_end" }, at()); // 같은 교훈 두 번째 → support_count 2
+  // 같은 교훈 두 번째 — 다른 작성자여야 support_count 2(v0.3.13). Designer 가 없어 Researcher 로 채워졌으면 Lead 가 적는다.
+  const second = [researcher, lead].find((x) => x.id !== designer.id) ?? researcher;
+  noteMemory(s, workId, second, { kind: "lesson", content: M.lesson_promoted, outcome: "dead_end" }, at());
   ids.lesson_once = noteMemory(s, workId, designer, { kind: "lesson", content: M.lesson_once, outcome: "useful" }, at()).item.id;
   ids.open_question = noteMemory(s, workId, researcher, { kind: "open_question", content: M.open_question }, at()).item.id;
   retireMemory(st.get(ids.retired)!, M.retire_reason, at());

@@ -6,8 +6,8 @@
 #
 # 방 L: Lead(lead) · R(researcher). 긴 미션 — Lead 첫 턴 뒤 그 미션의 메시지 150건(셋 중 하나는 작업 내용 3,000자)을
 #   DB 에 심어 ②가 크게 생기게 한다(0단계 기준선 04-baseline §4 의 「긴 미션」 모양).
-#   L1  Lead 첫 턴: plan·fact·assignment·open_question note exit 0 · lesson 두 번 → support 1 → 2(새 행 없음) · get 5
-#   L2  R: plan note → exit 3(역할 밖) · Lead 의 fact supersede exit 0 · 다시 supersede → exit 3 memory_not_active · retire exit 0
+#   L1  Lead 첫 턴: plan·fact·assignment·open_question note exit 0 · lesson 두 번(같은 작성자) → support 1 그대로 · get 5
+#   L2  R: plan note → exit 3(역할 밖) · Lead 의 fact supersede exit 0 · 다시 supersede → exit 3 memory_not_active · 같은 lesson → support 2 · retire exit 0
 #   L3  DB: 원장 행 5 + supersede 1 = 6 · lesson 행 1(support 2) · 옛 fact 의 content 그대로 + superseded · active plan 1
 #   L4  Lead 둘째 턴의 <mission_ledger>: 새 값만(옛 값 없음) · lesson(support 2) · plan · 철회된 질문 없음 · ② 다음 ③ 앞
 #   L5  ② 는 머리글 색인: 메시지마다 한 줄 · <detail 없음
@@ -46,7 +46,7 @@ W="$(q "select legacy_work_id from room where id='$ROOM'")"
 wait_until "$T_TURN" "[ -s \"$REC/102-lead-get\" ]" || true
 wait_quiet "$ROOM" "$T_TURN" || true
 chk L1a "Lead plan·fact·assignment·open_question note → exit 0" "0/0/0/0" "$(recv lead-plan)/$(recv lead-fact)/$(recv lead-assign)/$(recv lead-question)"
-chk L1b "같은 lesson 두 번 → support 1 → 2" "0 1/0 2" "$(recv lead-lesson1)/$(recv lead-lesson2)"
+chk L1b "같은 lesson 을 같은 작성자가 두 번 → support 1 그대로(v0.3.13)" "0 1/0 1" "$(recv lead-lesson1)/$(recv lead-lesson2)"
 chk L1c "memory get → 5 항목(active — lesson 은 합쳐져 하나)" "0 5" "$(recv lead-get)"
 
 step "3. 긴 미션 — 메시지 150건을 그 미션에 심는다"
@@ -65,12 +65,13 @@ wait_until "$T_TURN" "[ -s \"$REC/102-r-retire\" ]" || true
 wait_quiet "$ROOM" "$T_TURN" || true
 chk L2a "R plan note → exit 3(역할 밖, 서버에 보내기 전)" "3" "$(recv r-plan | awk '{print $1}')"
 chk L2b "R supersede exit 0 · 다시 → exit 3 memory_not_active · retire exit 0" "0/3 memory_not_active/0" "$(recv r-supersede)/$(recv r-supersede-again)/$(recv r-retire)"
+chk L2c "같은 lesson 을 다른 작성자(R)가 → support 2(병합, 새 행 없음)" "0 2" "$(recv r-lesson)"
 FID="$(cat "$REC/102-fact-id" 2>/dev/null)"
 chk L3a "원장 행 6(5 + supersede 1) · lesson 행 1(support 2) · active plan 1" "6/1 2/1" \
   "$(q "select count(*) from memory_item where work_id='$W'")/$(q "select count(*)||' '||max(support_count) from memory_item where work_id='$W' and kind='lesson'")/$(q "select count(*) from memory_item where work_id='$W' and kind='plan' and status='active'")"
 chk L3b "옛 fact: content 그대로 · superseded · 새 항목이 supersedes 로 가리킨다" "API 한도는 분당 60회 superseded 1" \
   "$(q "select content||' '||status from memory_item where id='$FID'") $(q "select count(*) from memory_item where supersedes='$FID'")"
-chk L3c "철회한 질문은 retired 로 남는다(삭제 없음)" "retired" "$(q "select status from memory_item where work_id='$W' and kind='open_question'")"
+chk L3c "철회한 질문은 retired 로 남는다(삭제 없음) · 사유는 retire_reason" "retired Director 가 연결 기준으로 정했다" "$(q "select status||' '||retire_reason from memory_item where work_id='$W' and kind='open_question'")"
 
 step "5. Lead 둘째 턴 — 원장과 머리글 색인을 읽는다"
 post_message "$ROOM" "[@Lead](mention://agent/$LEAD) 지금 원장 기준으로 다음 할 일을 정리해 주세요" >/dev/null

@@ -85,6 +85,9 @@ export function LedgerList({ items, now }: { items: readonly MemoryItem[]; now?:
                       <>
                         <span className="ledger__sep" aria-hidden="true">·</span>
                         <span className="ledger__state" data-testid="ledger-retired">{L.retired}</span>
+                        {it.retire_reason && (
+                          <span className="ledger__reason" data-testid="ledger-retire-reason">{L.retire_reason(it.retire_reason)}</span>
+                        )}
                       </>
                     )}
                   </p>

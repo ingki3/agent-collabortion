@@ -2,11 +2,11 @@
 # e2e/p5/fixtures/ledger_flow.sh ROLE — 102_mission_ledger.sh 의 페이크 대본(acpfake exec, 턴마다 한 번).
 #   프롬프트(ACPFAKE_PROMPT)의 내용으로 할 일을 고른다. 흔적은 $FAKE_OUT/102-<tag> 에 남긴다.
 #
-#   Lead : 첫 턴(<mission_ledger> 없음) → plan · fact(given) · assignment · open_question · lesson 두 번(같은 내용 →
-#          support 2) 을 원장에 쓰고 memory get 으로 읽는다.
+#   Lead : 첫 턴(<mission_ledger> 없음) → plan · fact(given) · assignment · open_question · lesson 두 번(같은 작성자라
+#          support 1 그대로, openapi v0.3.13) 을 원장에 쓰고 memory get 으로 읽는다.
 #          <mission_ledger> 가 있는 턴 → 프롬프트에서 원장·② 모양을 관측해 기록한다.
 #   R    : 일반 턴 → plan 쓰기 시도(역할 밖 → exit 3) · Lead 의 fact 를 supersede · 같은 fact 를 다시 supersede(→ exit 3
-#          memory_not_active) · open_question 철회.
+#          memory_not_active) · 같은 lesson(다른 작성자 → support 2) · open_question 철회.
 set -u
 ROLE="$1"; P="${ACPFAKE_PROMPT:-}"; O="${FAKE_OUT:-/tmp}"
 has() { printf '%s' "$P" | grep -qF -- "$1"; }
@@ -49,6 +49,8 @@ role_R() {
   fid="$(cat "$O/102-fact-id" 2>/dev/null)"
   out="$(colab memory supersede "$fid" --content "API 한도는 분당 120회 (문서 확인)" 2>&1)"; rec r-supersede "$?"
   out="$(colab memory supersede "$fid" --content "또 바꾼다" 2>/dev/null)"; rec r-supersede-again "$? $(ecode "$out" '.error.code // .code // "-"')"
+  # 같은 교훈을 다른 작성자(R)가 적어야 support 2(openapi v0.3.13 — Lead 가 두 번 적은 것은 1 로 남는다).
+  out="$(colab memory note --kind lesson --outcome dead_end --content "스크래핑은 막힌다 — 공식 API 를 쓴다" 2>&1)"; rec r-lesson "$? $(ecode "$out" '.support_count')"
   qid="$(cat "$O/102-question-id" 2>/dev/null)"
   out="$(colab memory retire "$qid" --reason "Director 가 연결 기준으로 정했다" 2>&1)"; rec r-retire "$?"
   colab message post --body "한도 값을 고쳤습니다" >/dev/null 2>&1

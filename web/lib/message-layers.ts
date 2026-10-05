@@ -242,6 +242,18 @@ export function formatDuration(ms: number): ProcessPart[] {
  * 작업 과정 한 줄 — 가장 많은 동작 2개와 수 · 걸린 시간 · 실패 수(SCREEN §4.6 표). 같은 툴 호출(started → ok/failed)은 한 번으로 센다
  * (`foldEvents` — 피드가 한 행으로 접는 것과 같다). 동률이면 먼저 나온 동작이 앞이다. 걸린 시간은 첫 이벤트 → 마지막 이벤트.
  */
+/**
+ * 동작 키 — `class/verb`. 원장 쓰기(서버 `status/update`, openapi v0.3.12 — 스키마에 원장 동사가 없어 update 를 탄다)는
+ * payload.command(`memory note` · `memory supersede` · `memory retire`)로 셋을 가른다(#409 리뷰 NN5).
+ */
+export function processKey(e: TaskEvent): string {
+  if (e.class === "status" && e.verb === "update") {
+    const cmd = payloadOf(e).command;
+    if (typeof cmd === "string" && cmd.startsWith("memory ")) return `status/${cmd.replace(/ /g, "_")}`;
+  }
+  return `${e.class}/${e.verb ?? ""}`;
+}
+
 export function summarizeProcess(
   src: { events: TaskEvent[]; structured: boolean; loading: boolean } | undefined,
   slice?: ProcessWindow | null,
@@ -256,7 +268,7 @@ export function summarizeProcess(
   let failures = 0;
   rows.forEach(({ latest: e }, order) => {
     if (isFailure(e)) failures++;
-    const key = `${e.class}/${e.verb ?? ""}`;
+    const key = processKey(e);
     if (!PROCESS_ACTION[key]) return;
     const c = counts.get(key) ?? { n: 0, order };
     if (key === "tool/edit_file") {

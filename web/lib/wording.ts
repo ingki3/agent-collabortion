@@ -880,6 +880,8 @@ export const MEMORY_LEDGER = {
   new_version: "새 판 보기",
   new_version_title: "이 항목을 대체한 새 항목으로 갑니다",
   retired: "철회됨",
+  /** 철회 사유(openapi v0.3.13 `retire_reason`, #409 리뷰 NN4) — 「철회됨」 바로 뒤. */
+  retire_reason: (r: string) => `— ${r}`,
   aria: "미션 상태 원장",
   group_aria: (kind: string, n: number) => `${kind} ${n}건`,
 } as const;
@@ -975,6 +977,10 @@ export const PROCESS_ACTION: Record<string, Slotted> = {
   "status/record_decision": ["결정 기록 ", "건"],
   "status/hitl": ["사람 확인 요청 ", "건"],
   "status/review": ["검토 ", "건"],
+  // 원장 쓰기(PRD FR-4.6) — 피드 행은 status/update + payload.command 로 셋을 가른다(message-layers processKey, #409 리뷰 NN5).
+  "status/memory_note": ["원장 기록 ", "건"],
+  "status/memory_supersede": ["원장 항목 대체 ", "건"],
+  "status/memory_retire": ["원장 항목 철회 ", "건"],
 };
 
 /** 좁은 화면(≤1100px) 열 탭 넷(§4.8). */

@@ -103,6 +103,9 @@ func (s *Server) handleMemory(w http.ResponseWriter, r *http.Request, path strin
 		if op == "retire" {
 			item := memoryItem(MemoryID, "fact", "경쟁사는 셋이다", "retired")
 			item["invalidated_at"] = time.Now().UTC().Format(time.RFC3339)
+			// openapi v0.3.13 MemoryItem.retire_reason — the server echoes the trimmed reason.
+			reason, _ := body["reason"].(string)
+			item["retire_reason"] = strings.TrimSpace(reason)
 			writeJSON(w, 200, item)
 			return true
 		}
