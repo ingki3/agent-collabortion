@@ -2165,6 +2165,7 @@ export interface paths {
         /**
          * 원장에 새 항목(`colab memory note`)
          * @description 권한: `TaskToken`(그 미션의 task). `kind` 가 `plan`·`progress` 면 호출자 역할이 `lead` 가 아닐 때 `403 memory_kind_forbidden`(FR-1.9.1 표 밖 — 역할 K-19 표와 별개로 서버가 kind 단위로 검사). `plan` 은 미션당 `active` 1개 — 새로 쓰면 이전 `active` plan 이 자동으로 `superseded_by` 이 항목.
+         *     **`kind: lesson` 병합(v0.3.13, #409 리뷰 해석)**: 같은 미션·`status: active`·`content`(trim 후 완전 일치)인 기존 항목이 있으면 새 행을 만들지 않고 `200`으로 그 항목을 반환한다 — 단 **`created_by` 가 기존에 그 항목에 기여한 적 없는 에이전트일 때만** `support_count` +1·`last_reinforced_at` 갱신(같은 에이전트의 재확인은 세지 않는다 — PRD FR-4.6 「독립 항목」). 새 행이면 `201`.
          */
         post: operations["noteMemory"];
         delete?: never;
@@ -4497,6 +4498,8 @@ export interface components {
             superseded_by?: string | null;
             /** Format: date-time */
             invalidated_at?: string | null;
+            /** @description v0.3.13 — `status: retired` 면 `retireMemory` 의 `reason`(#409 리뷰 NN4 — 응답에 없어 아무도 철회 사유를 못 봤다). 그 밖은 null. */
+            retire_reason?: string | null;
             source_message_ids?: string[];
             created_by: {
                 /** @enum {string} */
@@ -4507,6 +4510,8 @@ export interface components {
             };
             /** Format: date-time */
             created_at: string;
+            /** @description v0.3.13 — `kind: lesson` 만: 마지막으로 다른 에이전트가 같은 내용을 재확인한 시각(없으면 `created_at` 과 같다). 30일 렌더 제외 판정은 이 칸을 쓴다(`created_at` 이 아니다) — 오늘 재확인된 교훈이 첫 기록이 오래됐다고 사라지지 않게(#409 리뷰 NN3). */
+            last_reinforced_at?: string | null;
         };
         Decision: {
             /** Format: uuid */
@@ -8972,7 +8977,16 @@ export interface operations {
             };
         };
         responses: {
-            /** @description 저장됨. */
+            /** @description v0.3.13 — `kind: lesson` 병합(새 행을 안 만들고 기존 항목을 돌려줌). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryItem"];
+                };
+            };
+            /** @description 저장됨(새 행). */
             201: {
                 headers: {
                     [name: string]: unknown;

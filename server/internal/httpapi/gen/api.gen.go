@@ -3775,11 +3775,17 @@ type MemoryItem struct {
 	InvalidatedAt nullable.Nullable[time.Time] `json:"invalidated_at,omitempty"`
 
 	// Kind `memory_item.kind`. `plan`·`progress` 는 쓰기가 lead·사람으로 제한된다(PRD FR-4.6 2).
-	Kind    MemoryKind                       `json:"kind"`
-	Outcome nullable.Nullable[MemoryOutcome] `json:"outcome,omitempty"`
+	Kind MemoryKind `json:"kind"`
+
+	// LastReinforcedAt v0.3.13 — `kind: lesson` 만: 마지막으로 다른 에이전트가 같은 내용을 재확인한 시각(없으면 `created_at` 과 같다). 30일 렌더 제외 판정은 이 칸을 쓴다(`created_at` 이 아니다) — 오늘 재확인된 교훈이 첫 기록이 오래됐다고 사라지지 않게(#409 리뷰 NN3).
+	LastReinforcedAt nullable.Nullable[string]        `json:"last_reinforced_at,omitempty"`
+	Outcome          nullable.Nullable[MemoryOutcome] `json:"outcome,omitempty"`
 
 	// Promoted kind=lesson 이 support_count ≥2 로 렌더 대상인가. 그 밖은 항상 true.
-	Promoted         *bool                                 `json:"promoted,omitempty"`
+	Promoted *bool `json:"promoted,omitempty"`
+
+	// RetireReason v0.3.13 — `status: retired` 면 `retireMemory` 의 `reason`(#409 리뷰 NN4 — 응답에 없어 아무도 철회 사유를 못 봤다). 그 밖은 null.
+	RetireReason     nullable.Nullable[string]             `json:"retire_reason,omitempty"`
 	SourceMessageIds *[]openapi_types.UUID                 `json:"source_message_ids,omitempty"`
 	Status           MemoryStatus                          `json:"status"`
 	SupersededBy     nullable.Nullable[openapi_types.UUID] `json:"superseded_by,omitempty"`
