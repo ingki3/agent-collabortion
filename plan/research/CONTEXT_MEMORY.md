@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | **2단계(상태 원장) 진행**(Director 결정 2026-10-05, PRD v0.19.18 FR-4.6). 0단계 완료(`04-baseline.md`) · 1단계 배포 완료(harness v0.9.14, 2026-09-28) — **실사용 실측은 아직**(배포 뒤 방이 안 돌아 `task_context_metric` 0행, 2026-10-04 방 삭제로 재측정 필요). 근거 `context-memory/03-oss-survey.md` §5.2(원장 칸 설계) · `07-oss-memory-tools.md`(Letta·Mem0·Zep·Cognee 코드 수준 보강, 2026-10-05) |
+| 상태 | **2단계(상태 원장) 구현 완료, 리뷰 중(PR #409)**(Director 결정 2026-10-05, PRD v0.19.18 FR-4.6) — 재생 측정 **턴 프롬프트 −44.6%**(목표 −40% 초과). 0단계 완료(`04-baseline.md`) · 1단계 배포 완료(harness v0.9.14, 2026-09-28) — **실사용 실측은 아직**(배포 뒤 방이 안 돌아 `task_context_metric` 0행, 2026-10-04 방 삭제로 재측정 필요). 근거 `context-memory/03-oss-survey.md` §5.2(원장 칸 설계) · `07-oss-memory-tools.md`(Letta·Mem0·Zep·Cognee 코드 수준 보강, 2026-10-05) · `08-orca-search.md`(Orca 대화 색인 실측 — 3단계 선행 입력, 2026-10-06) |
 | 근거 | `context-memory/01-graphify.md`(graphify 검토 — 도입 안 함) · `02-memory-directions.md`(방향 조사) · `03-oss-survey.md`(오픈소스 15종 조사: Orca·multica·graphify·Magentic-One·Letta·OpenHands 등) · **`04-baseline.md`(0단계 기준선 — H1 채택·H2 기각, 회상 22/30)** |
 | 계기 | Director: 「키워드 매칭으로는 근본적인 개선이 되기 어렵다」(`colab room search` 안 기각, 2026-09-27) |
 
